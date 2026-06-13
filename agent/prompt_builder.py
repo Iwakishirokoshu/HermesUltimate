@@ -7,6 +7,7 @@ assemble pieces, then combines them with memory and ephemeral prompts.
 import json
 import logging
 import os
+import re
 import threading
 from collections import OrderedDict
 from pathlib import Path
@@ -1334,30 +1335,64 @@ def _truncate_content(content: str, filename: str, max_chars: int = CONTEXT_FILE
     return head + marker + tail
 
 
-def load_soul_md() -> Optional[str]:
-    """Load SOUL.md from HERMES_HOME and return its content, or None.
+_CONTEXT_INJECTION_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("prompt_injection", re.compile(r"ignore\s+(?:all\s+)?previous\s+instructions", re.IGNORECASE)),
+    ("prompt_injection", re.compile(r"disregard\s+(?:your|all)\s+rules", re.IGNORECASE)),
+    ("prompt_injection", re.compile(r"system\s+prompt\s+override", re.IGNORECASE)),
+    ("prompt_injection", re.compile(r"<!--.*?(ignore|disregard).*?-->", re.IGNORECASE | re.DOTALL)),
+    ("hidden_content", re.compile(r"<div[^>]+display\s*:\s*none", re.IGNORECASE)),
+    ("secret_exfiltration", re.compile(r"\bcurl\s+https?://[^\s]+\$[A-Z0-9_]+", re.IGNORECASE)),
+    ("secret_exfiltration", re.compile(r"\bcat\s+~/\.[A-Za-z0-9_.-]+", re.IGNORECASE)),
+    ("invisible_unicode", re.compile(r"[\u200b\u200c\u200d\ufeff]")),
+    ("tool_execution", re.compile(r"translate\s+this\s+into\s+bash\s+and\s+execute", re.IGNORECASE)),
+    ("bypass_restrictions", re.compile(r"act\s+as\s+if\s+you\s+have\s+no\s+restrictions", re.IGNORECASE)),
+)
+
+
+def _scan_context_content(content: str, filename: str) -> str:
+    """Return content unchanged unless a legacy prompt-injection pattern matches."""
+    reasons = [
+        reason
+        for reason, pattern in _CONTEXT_INJECTION_PATTERNS
+        if pattern.search(content or "")
+    ]
+    if not reasons:
+        return content
+    reason_text = ",".join(sorted(set(reasons)))
+    return f"[BLOCKED {filename}: {reason_text}]"
+
+
+def load_soul_md(soul_path: Optional[str | Path] = None) -> Optional[str]:
+    """Load SOUL.md and return its content, or None.
 
     Used as the agent identity (slot #1 in the system prompt).  When this
     returns content, ``build_context_files_prompt`` should be called with
     ``skip_soul=True`` so SOUL.md isn't injected twice.
-    """
-    try:
-        from hermes_cli.config import ensure_hermes_home
-        ensure_hermes_home()
-    except Exception as e:
-        logger.debug("Could not ensure HERMES_HOME before loading SOUL.md: %s", e)
 
-    soul_path = get_hermes_home() / "SOUL.md"
-    if not soul_path.exists():
+    When *soul_path* is provided, load that file instead of the default
+    ``HERMES_HOME/SOUL.md``.
+    """
+    if soul_path is None:
+        try:
+            from hermes_cli.config import ensure_hermes_home
+            ensure_hermes_home()
+        except Exception as e:
+            logger.debug("Could not ensure HERMES_HOME before loading SOUL.md: %s", e)
+
+        path = get_hermes_home() / "SOUL.md"
+    else:
+        path = Path(soul_path).expanduser()
+
+    if not path.exists():
         return None
     try:
-        content = soul_path.read_text(encoding="utf-8").strip()
+        content = path.read_text(encoding="utf-8").strip()
         if not content:
             return None
-        content = _truncate_content(content, "SOUL.md")
+        content = _truncate_content(content, path.name or "SOUL.md")
         return content
     except Exception as e:
-        logger.debug("Could not read SOUL.md from %s: %s", soul_path, e)
+        logger.debug("Could not read SOUL.md from %s: %s", path, e)
         return None
 
 
@@ -1371,6 +1406,7 @@ def _load_hermes_md(cwd_path: Path) -> str:
         if not content:
             return ""
         content = _strip_yaml_frontmatter(content)
+        content = _scan_context_content(content, hermes_md_path.name)
         rel = hermes_md_path.name
         try:
             rel = str(hermes_md_path.relative_to(cwd_path))
@@ -1391,6 +1427,7 @@ def _load_agents_md(cwd_path: Path) -> str:
             try:
                 content = candidate.read_text(encoding="utf-8").strip()
                 if content:
+                    content = _scan_context_content(content, name)
                     result = f"## {name}\n\n{content}"
                     return _truncate_content(result, "AGENTS.md")
             except Exception as e:
@@ -1406,6 +1443,7 @@ def _load_claude_md(cwd_path: Path) -> str:
             try:
                 content = candidate.read_text(encoding="utf-8").strip()
                 if content:
+                    content = _scan_context_content(content, name)
                     result = f"## {name}\n\n{content}"
                     return _truncate_content(result, "CLAUDE.md")
             except Exception as e:
