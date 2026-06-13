@@ -85,6 +85,7 @@ import SystemPage from "@/pages/SystemPage";
 import SoulsPage from "@/pages/SoulsPage";
 import DecepticonPage from "@/pages/DecepticonPage";
 import VaultBrowserPage from "@/pages/VaultBrowserPage";
+import RouterPage from "@/pages/RouterPage";
 import ChatPage from "@/pages/ChatPage";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { ThemeSwitcher } from "@/components/ThemeSwitcher";
@@ -116,10 +117,6 @@ function DashboardPlaceholderPage({ title }: { title: string }) {
       </p>
     </div>
   );
-}
-
-function RouterRoute() {
-  return <DashboardPlaceholderPage title="Router" />;
 }
 
 function BrowserRoute() {
@@ -159,7 +156,7 @@ const BUILTIN_ROUTES_CORE: Record<string, ComponentType> = {
   "/souls": SoulsPage,
   "/decepticon": DecepticonPage,
   "/vault": VaultBrowserPage,
-  "/router": RouterRoute,
+  "/router": RouterPage,
   "/browser": BrowserRoute,
   "/bots": BotsRoute,
   "/sessions": SessionsPage,
