@@ -16775,6 +16775,105 @@ class GatewayRunner:
             return url.rstrip("/")
         return None
 
+    def _build_soul_system_prompt(
+        self,
+        context_prompt: str,
+        channel_prompt: Optional[str],
+        soul_config: Optional[Any],
+    ) -> str:
+        combined_ephemeral = context_prompt or ""
+        event_channel_prompt = (channel_prompt or "").strip()
+        if event_channel_prompt:
+            combined_ephemeral = (combined_ephemeral + "\n\n" + event_channel_prompt).strip()
+        if soul_config is not None:
+            soul_note = self._soul_context_note(soul_config)
+            if soul_note:
+                combined_ephemeral = (combined_ephemeral + "\n\n" + soul_note).strip()
+        if self._ephemeral_system_prompt:
+            combined_ephemeral = (combined_ephemeral + "\n\n" + self._ephemeral_system_prompt).strip()
+        return combined_ephemeral
+
+    async def _run_agent_via_decepticon(
+        self,
+        message: str,
+        context_prompt: str,
+        history: List[Dict[str, Any]],
+        source: "SessionSource",
+        session_id: str,
+        session_key: str = None,
+        soul_config: Optional[Any] = None,
+        channel_prompt: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Run a turn through the Decepticon LangGraph backend."""
+        from hermes_cli.backends.decepticon_backend import DecepticonBackend
+
+        agent_history, observed_group_context = _build_gateway_agent_history(
+            history,
+            channel_prompt=channel_prompt,
+        )
+        current_message = _wrap_current_message_with_observed_context(
+            message,
+            observed_group_context,
+        )
+        messages: List[Dict[str, Any]] = list(agent_history)
+        messages.append({"role": "user", "content": current_message})
+
+        system_prompt = self._build_soul_system_prompt(
+            context_prompt,
+            channel_prompt,
+            soul_config,
+        )
+        backend = DecepticonBackend(
+            base_url=getattr(soul_config, "langgraph_url", None),
+        )
+
+        final_chunks: List[str] = []
+        stream_events: List[Dict[str, Any]] = []
+        tools: List[Dict[str, Any]] = []
+
+        try:
+            async for event in backend.stream(messages, tools, system_prompt):
+                stream_events.append({"type": event.type, "data": event.data})
+                if event.type == "token":
+                    text = event.data.get("text") or event.data.get("delta") or ""
+                    if text:
+                        final_chunks.append(str(text))
+
+            final_response = "".join(final_chunks).strip()
+            result_messages = list(messages)
+            if final_response:
+                result_messages.append({"role": "assistant", "content": final_response})
+
+            return {
+                "final_response": final_response,
+                "messages": result_messages,
+                "api_calls": 1,
+                "completed": True,
+                "interrupted": False,
+                "partial": False,
+                "error": None,
+                "tools": tools,
+                "history_offset": len(agent_history),
+                "model": "decepticon",
+                "session_id": session_id,
+                "decepticon_events": stream_events,
+            }
+        except Exception as exc:
+            logger.exception("Decepticon backend failed for session %s", session_key or "")
+            return {
+                "final_response": f"Decepticon backend error: {exc}",
+                "messages": messages,
+                "api_calls": 0,
+                "completed": False,
+                "failed": True,
+                "error": str(exc),
+                "tools": tools,
+                "history_offset": len(agent_history),
+                "model": "decepticon",
+                "session_id": session_id,
+                "decepticon_events": stream_events,
+            }
+
     async def _run_agent_via_proxy(
         self,
         message: str,
@@ -17089,6 +17188,18 @@ class GatewayRunner:
         """
         if soul_config is None:
             soul_config = self._get_active_soul_config(source)
+
+        if str(getattr(soul_config, "backend", "") or "").lower() == "decepticon":
+            return await self._run_agent_via_decepticon(
+                message=message,
+                context_prompt=context_prompt,
+                history=history,
+                source=source,
+                session_id=session_id,
+                session_key=session_key,
+                soul_config=soul_config,
+                channel_prompt=channel_prompt,
+            )
 
         # ---- Proxy mode: delegate to remote API server ----
         if self._get_proxy_url():
@@ -17817,18 +17928,13 @@ class GatewayRunner:
             # Platform.LOCAL ("local") maps to "cli"; others pass through as-is.
             platform_key = "cli" if source.platform == Platform.LOCAL else source.platform.value
             
-            # Combine platform context, per-channel context, and the user-configured
-            # ephemeral system prompt.
-            combined_ephemeral = context_prompt or ""
-            event_channel_prompt = (channel_prompt or "").strip()
-            if event_channel_prompt:
-                combined_ephemeral = (combined_ephemeral + "\n\n" + event_channel_prompt).strip()
-            if soul_config is not None:
-                soul_note = self._soul_context_note(soul_config)
-                if soul_note:
-                    combined_ephemeral = (combined_ephemeral + "\n\n" + soul_note).strip()
-            if self._ephemeral_system_prompt:
-                combined_ephemeral = (combined_ephemeral + "\n\n" + self._ephemeral_system_prompt).strip()
+            # Combine platform context, per-channel context, soul context,
+            # and the user-configured ephemeral system prompt.
+            combined_ephemeral = self._build_soul_system_prompt(
+                context_prompt,
+                channel_prompt,
+                soul_config,
+            )
 
             # Re-read .env and config for fresh credentials (gateway is long-lived,
             # keys may change without restart). Keep config.yaml authoritative for
