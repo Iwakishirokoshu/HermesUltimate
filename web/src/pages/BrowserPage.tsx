@@ -3,6 +3,7 @@ import {
   Eye,
   EyeOff,
   FileUp,
+  Radio,
   Monitor,
   RefreshCw,
   ShieldCheck,
@@ -28,6 +29,22 @@ interface CloakProfile {
 interface CloakProfilesResponse {
   profiles?: CloakProfile[];
   active?: string;
+}
+
+interface ReachChannel {
+  status?: string;
+  name?: string;
+  message?: string;
+  tier?: number;
+  backends?: string[];
+  active_backend?: string | null;
+}
+
+interface ReachDoctorResponse {
+  ok?: boolean;
+  source?: string;
+  updated_at?: string;
+  channels?: Record<string, ReachChannel>;
 }
 
 function vncPassword() {
@@ -57,6 +74,8 @@ export default function BrowserPage() {
   const [profiles, setProfiles] = useState<CloakProfile[]>([]);
   const [activeProfile, setActiveProfile] = useState("");
   const [profilesLoading, setProfilesLoading] = useState(true);
+  const [reachChannels, setReachChannels] = useState<Record<string, ReachChannel>>({});
+  const [reachLoading, setReachLoading] = useState(true);
   const [savingProfile, setSavingProfile] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -94,9 +113,18 @@ export default function BrowserPage() {
       .finally(() => setProfilesLoading(false));
   }, []);
 
+  const loadReachChannels = useCallback(() => {
+    setReachLoading(true);
+    fetchJSON<ReachDoctorResponse>("/api/reach/doctor")
+      .then((payload) => setReachChannels(payload.channels ?? {}))
+      .catch((err) => setError(String(err)))
+      .finally(() => setReachLoading(false));
+  }, []);
+
   useEffect(() => {
     loadProfiles();
-  }, [loadProfiles]);
+    loadReachChannels();
+  }, [loadProfiles, loadReachChannels]);
 
   useLayoutEffect(() => {
     setAfterTitle(
@@ -286,6 +314,12 @@ export default function BrowserPage() {
               </Button>
             </CardContent>
           </Card>
+
+          <ReachChannelsCard
+            channels={reachChannels}
+            loading={reachLoading}
+            onRefresh={loadReachChannels}
+          />
         </aside>
       </div>
 
@@ -303,5 +337,101 @@ export default function BrowserPage() {
 
       <PluginSlot name="browser:bottom" />
     </div>
+  );
+}
+
+function ReachChannelsCard({
+  channels,
+  loading,
+  onRefresh,
+}: {
+  channels: Record<string, ReachChannel>;
+  loading: boolean;
+  onRefresh: () => void;
+}) {
+  const rows = Object.entries(channels).sort(([a], [b]) => a.localeCompare(b));
+
+  return (
+    <Card className="min-w-0 overflow-hidden">
+      <CardHeader className="px-4 py-3">
+        <div className="flex min-w-0 items-center justify-between gap-3">
+          <CardTitle className="flex items-center gap-2 text-sm">
+            <Radio className="h-4 w-4" />
+            Reach Channels
+          </CardTitle>
+          <Button
+            type="button"
+            ghost
+            size="icon"
+            onClick={onRefresh}
+            disabled={loading}
+            aria-label="Refresh Reach channels"
+          >
+            {loading ? <Spinner /> : <RefreshCw />}
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent className="p-0">
+        {loading && rows.length === 0 ? (
+          <div className="flex min-h-36 items-center justify-center">
+            <Spinner className="text-xl text-primary" />
+          </div>
+        ) : rows.length === 0 ? (
+          <div className="px-4 py-6 text-sm text-muted-foreground">
+            No Reach channels returned.
+          </div>
+        ) : (
+          <div className="max-h-[420px] overflow-auto">
+            <table className="w-full min-w-[440px] text-left text-xs">
+              <thead className="sticky top-0 border-b border-border bg-background-base text-text-tertiary">
+                <tr>
+                  <th className="px-3 py-2 font-normal">Channel</th>
+                  <th className="px-3 py-2 font-normal">Status</th>
+                  <th className="px-3 py-2 font-normal">Backend</th>
+                  <th className="px-3 py-2 font-normal">Tier</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map(([id, channel]) => {
+                  const tone =
+                    channel.status === "ok"
+                      ? "success"
+                      : channel.status === "warn"
+                        ? "warning"
+                        : channel.status === "off"
+                          ? "secondary"
+                          : "destructive";
+                  return (
+                    <tr key={id} className="border-b border-border/60">
+                      <td className="max-w-40 px-3 py-2">
+                        <div className="truncate font-medium text-midground">
+                          {id}
+                        </div>
+                        <div className="truncate text-text-tertiary">
+                          {channel.name ?? id}
+                        </div>
+                      </td>
+                      <td className="px-3 py-2">
+                        <Badge tone={tone} className="text-xs">
+                          {channel.status ?? "unknown"}
+                        </Badge>
+                      </td>
+                      <td className="max-w-36 px-3 py-2 text-text-secondary">
+                        <span className="block truncate">
+                          {channel.active_backend ?? channel.backends?.[0] ?? "-"}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2 text-text-secondary">
+                        {channel.tier ?? "-"}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
