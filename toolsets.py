@@ -31,6 +31,7 @@ from typing import List, Dict, Any, Set, Optional
 _HERMES_CORE_TOOLS = [
     # Web
     "web_search", "web_extract",
+    "reach",
     # Terminal + process management
     "terminal", "process",
     # File manipulation
@@ -99,6 +100,12 @@ TOOLSETS = {
     "search": {
         "description": "Web search only (no content extraction/scraping)",
         "tools": ["web_search"],
+        "includes": []
+    },
+
+    "reach": {
+        "description": "Agent-Reach channel/status bridge",
+        "tools": ["reach"],
         "includes": []
     },
 

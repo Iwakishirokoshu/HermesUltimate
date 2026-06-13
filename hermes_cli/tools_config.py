@@ -54,6 +54,7 @@ from hermes_cli.cli_output import (  # noqa: E402 — late import block
 # These map to keys in toolsets.py TOOLSETS dict.
 CONFIGURABLE_TOOLSETS = [
     ("web",             "🔍 Web Search & Scraping",    "web_search, web_extract"),
+    ("reach",           "Agent Reach",                 "reach"),
     ("browser",         "🌐 Browser Automation",       "navigate, click, type, scroll"),
     ("terminal",        "💻 Terminal & Processes",      "terminal, process"),
     ("file",            "📁 File Operations",           "read, write, patch, search"),
@@ -3781,6 +3782,7 @@ def _print_tools_list(enabled_toolsets: set, mcp_servers: dict, platform: str = 
         for toolset_name, label, prefix in (
             ("vault", "Vault", "vault."),
             ("cloak", "Cloak", "cloak."),
+            ("reach", "Reach", "reach"),
         ):
             tool_names = [
                 name for name in _resolve_toolset(toolset_name)
