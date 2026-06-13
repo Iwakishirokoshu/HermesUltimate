@@ -14,6 +14,7 @@ RUN apt-get update \
         supervisor \
         openbox \
         websockify \
+        socat \
         chromium \
         ffmpeg \
         curl \
