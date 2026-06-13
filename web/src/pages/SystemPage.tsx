@@ -41,7 +41,7 @@ import { ConfirmDialog } from "@nous-research/ui/ui/components/confirm-dialog";
 import { useModalBehavior } from "@/hooks/useModalBehavior";
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 import { cn, themedBody } from "@/lib/utils";
-import { api } from "@/lib/api";
+import { api, fetchJSON } from "@/lib/api";
 import type {
   StatusResponse,
   MemoryStatus,
@@ -146,6 +146,113 @@ const HOOK_EVENTS_FALLBACK = [
   "on_session_end",
 ];
 
+type StackServiceAction = "start" | "stop" | "restart";
+type StackBadgeTone =
+  | "default"
+  | "destructive"
+  | "outline"
+  | "secondary"
+  | "success"
+  | "warning";
+
+interface StackPublisher {
+  URL?: string;
+  PublishedPort?: number;
+  TargetPort?: number;
+  Protocol?: string;
+}
+
+interface StackServiceInfo {
+  name?: string;
+  service?: string;
+  status?: string;
+  state?: string;
+  health?: string;
+  image?: string;
+  ports?: string[] | string;
+  publishers?: StackPublisher[];
+  Name?: string;
+  Service?: string;
+  State?: string;
+  Health?: string;
+  Image?: string;
+  Ports?: string[] | string;
+  Publishers?: StackPublisher[];
+}
+
+type StackServicesResponse = StackServiceInfo[] | { services?: StackServiceInfo[] };
+
+interface StackLogsResponse {
+  service?: string;
+  lines?: string[];
+  logs?: string;
+  output?: string;
+}
+
+function stackServicesFromResponse(
+  response: StackServicesResponse,
+): StackServiceInfo[] {
+  return Array.isArray(response) ? response : response.services ?? [];
+}
+
+function stackServiceName(service: StackServiceInfo): string {
+  return service.service || service.Service || service.name || service.Name || "";
+}
+
+function stackServiceState(service: StackServiceInfo): string {
+  return (
+    service.status ||
+    service.state ||
+    service.State ||
+    service.health ||
+    service.Health ||
+    "unknown"
+  );
+}
+
+function stackServiceHealth(service: StackServiceInfo): string | null {
+  return service.health || service.Health || null;
+}
+
+function stackServiceImage(service: StackServiceInfo): string {
+  return service.image || service.Image || "";
+}
+
+function stackStatusTone(state: string): StackBadgeTone {
+  const normalized = state.toLowerCase();
+  if (normalized.includes("running") || normalized.includes("healthy")) {
+    return "success";
+  }
+  if (normalized.includes("starting") || normalized.includes("restarting")) {
+    return "warning";
+  }
+  if (normalized.includes("exited") || normalized.includes("dead")) {
+    return "destructive";
+  }
+  return "secondary";
+}
+
+function stackServicePorts(service: StackServiceInfo): string {
+  const ports = service.ports ?? service.Ports;
+  if (Array.isArray(ports)) return ports.join(", ");
+  if (typeof ports === "string") return ports;
+
+  const publishers = service.publishers ?? service.Publishers ?? [];
+  return publishers
+    .map((publisher) => {
+      const host =
+        publisher.PublishedPort && publisher.PublishedPort > 0
+          ? `${publisher.URL || "0.0.0.0"}:${publisher.PublishedPort}`
+          : "";
+      const target = publisher.TargetPort ? `${publisher.TargetPort}` : "";
+      const proto = publisher.Protocol ? `/${publisher.Protocol}` : "";
+      if (host && target) return `${host}->${target}${proto}`;
+      return host || (target ? `${target}${proto}` : "");
+    })
+    .filter(Boolean)
+    .join(", ");
+}
+
 export default function SystemPage() {
   const { toast, showToast } = useToast();
 
@@ -160,6 +267,14 @@ export default function SystemPage() {
   const [curator, setCurator] = useState<CuratorStatus | null>(null);
   const [portal, setPortal] = useState<PortalStatus | null>(null);
   const [loading, setLoading] = useState(true);
+  const [stackServices, setStackServices] = useState<StackServiceInfo[]>([]);
+  const [stackLoading, setStackLoading] = useState(true);
+  const [stackError, setStackError] = useState<string | null>(null);
+  const [stackAction, setStackAction] = useState<string | null>(null);
+  const [stackLogs, setStackLogs] = useState<{
+    service: string;
+    text: string;
+  } | null>(null);
 
   const [activeAction, setActiveAction] = useState<string | null>(null);
 
@@ -223,6 +338,64 @@ export default function SystemPage() {
   useEffect(() => {
     loadAll();
   }, [loadAll]);
+
+  const loadStackServices = useCallback(async () => {
+    setStackLoading(true);
+    setStackError(null);
+    try {
+      const response = await fetchJSON<StackServicesResponse>(
+        "/api/stack/services",
+      );
+      setStackServices(stackServicesFromResponse(response));
+    } catch (e) {
+      setStackError(String(e));
+      setStackServices([]);
+    } finally {
+      setStackLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadStackServices();
+  }, [loadStackServices]);
+
+  const runStackAction = async (
+    service: string,
+    action: StackServiceAction,
+  ) => {
+    const key = `${service}:${action}`;
+    setStackAction(key);
+    try {
+      await fetchJSON(`/api/stack/${encodeURIComponent(service)}/${action}`, {
+        method: "POST",
+      });
+      showToast(`Docker service ${action} requested`, "success");
+      await loadStackServices();
+    } catch (e) {
+      showToast(`Docker ${action} failed: ${e}`, "error");
+    } finally {
+      setStackAction(null);
+    }
+  };
+
+  const loadStackLogs = async (service: string) => {
+    const key = `${service}:logs`;
+    setStackAction(key);
+    try {
+      const response = await fetchJSON<StackLogsResponse>(
+        `/api/stack/${encodeURIComponent(service)}/logs?tail=200`,
+      );
+      const text =
+        response.logs ||
+        response.output ||
+        (response.lines?.length ? response.lines.join("\n") : "");
+      setStackLogs({ service: response.service || service, text });
+    } catch (e) {
+      showToast(`Docker logs failed: ${e}`, "error");
+    } finally {
+      setStackAction(null);
+    }
+  };
 
   // ── Gateway lifecycle ──────────────────────────────────────────────
   const runGateway = async (verb: "start" | "stop" | "restart") => {
@@ -785,6 +958,177 @@ export default function SystemPage() {
                 </span>
               )}
             </div>
+          </CardContent>
+        </Card>
+      </section>
+
+      {/* Docker Stack */}
+      <section className="flex flex-col gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <H2 variant="sm" className="flex items-center gap-2 text-muted-foreground">
+            <Database className="h-4 w-4" /> Docker Stack
+          </H2>
+          <Button
+            size="sm"
+            ghost
+            onClick={() => void loadStackServices()}
+            disabled={stackLoading}
+            prefix={
+              stackLoading ? (
+                <Spinner className="h-3.5 w-3.5" />
+              ) : (
+                <RotateCw className="h-3.5 w-3.5" />
+              )
+            }
+          >
+            Refresh
+          </Button>
+        </div>
+        <Card>
+          <CardContent className="flex flex-col gap-4 py-4">
+            {stackError && (
+              <div className="rounded border border-warning/30 bg-warning/5 p-3 text-xs text-muted-foreground">
+                Docker stack API unavailable:{" "}
+                <span className="font-mono">{stackError}</span>
+              </div>
+            )}
+            {stackLoading ? (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Spinner className="h-4 w-4" />
+                Loading stack services
+              </div>
+            ) : stackServices.length === 0 ? (
+              <div className="text-sm text-muted-foreground">
+                No Docker services returned.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[720px] text-left text-sm">
+                  <thead className="text-xs uppercase tracking-wider text-muted-foreground">
+                    <tr className="border-b border-border">
+                      <th className="pb-2 pr-4 font-normal">Service</th>
+                      <th className="pb-2 pr-4 font-normal">Status</th>
+                      <th className="pb-2 pr-4 font-normal">Image</th>
+                      <th className="pb-2 pr-4 font-normal">Ports</th>
+                      <th className="pb-2 text-right font-normal">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {stackServices.map((service, index) => {
+                      const serviceName =
+                        stackServiceName(service) || `service-${index + 1}`;
+                      const state = stackServiceState(service);
+                      const health = stackServiceHealth(service);
+                      const image = stackServiceImage(service);
+                      const ports = stackServicePorts(service);
+                      return (
+                        <tr
+                          key={`${serviceName}-${index}`}
+                          className="border-b border-border/70 last:border-0"
+                        >
+                          <td className="py-3 pr-4">
+                            <div className="font-mono text-xs text-foreground">
+                              {serviceName}
+                            </div>
+                            {service.Name && service.Name !== serviceName && (
+                              <div className="mt-1 max-w-48 truncate text-xs text-muted-foreground">
+                                {service.Name}
+                              </div>
+                            )}
+                          </td>
+                          <td className="py-3 pr-4">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <Badge tone={stackStatusTone(state)}>
+                                {state}
+                              </Badge>
+                              {health && health !== state && (
+                                <Badge tone={stackStatusTone(health)}>
+                                  {health}
+                                </Badge>
+                              )}
+                            </div>
+                          </td>
+                          <td className="max-w-64 py-3 pr-4">
+                            <span className="block truncate font-mono text-xs text-muted-foreground">
+                              {image || "-"}
+                            </span>
+                          </td>
+                          <td className="max-w-56 py-3 pr-4">
+                            <span className="block truncate font-mono text-xs text-muted-foreground">
+                              {ports || "-"}
+                            </span>
+                          </td>
+                          <td className="py-3">
+                            <div className="flex flex-wrap justify-end gap-2">
+                              <Button
+                                size="sm"
+                                ghost
+                                onClick={() => void runStackAction(serviceName, "start")}
+                                disabled={stackAction === `${serviceName}:start`}
+                                prefix={<Play className="h-3.5 w-3.5" />}
+                              >
+                                Start
+                              </Button>
+                              <Button
+                                size="sm"
+                                ghost
+                                onClick={() => void runStackAction(serviceName, "restart")}
+                                disabled={stackAction === `${serviceName}:restart`}
+                                prefix={<RotateCw className="h-3.5 w-3.5" />}
+                              >
+                                Restart
+                              </Button>
+                              <Button
+                                size="sm"
+                                ghost
+                                className="text-warning"
+                                onClick={() => void runStackAction(serviceName, "stop")}
+                                disabled={stackAction === `${serviceName}:stop`}
+                                prefix={<Power className="h-3.5 w-3.5" />}
+                              >
+                                Stop
+                              </Button>
+                              <Button
+                                size="sm"
+                                ghost
+                                onClick={() => void loadStackLogs(serviceName)}
+                                disabled={stackAction === `${serviceName}:logs`}
+                                prefix={<Terminal className="h-3.5 w-3.5" />}
+                              >
+                                Logs
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            {stackLogs && (
+              <div className="border-t border-border pt-4">
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <Terminal className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <span className="truncate font-mono text-xs">
+                      {stackLogs.service}
+                    </span>
+                  </div>
+                  <Button
+                    ghost
+                    size="icon"
+                    aria-label="Close stack logs"
+                    onClick={() => setStackLogs(null)}
+                  >
+                    <X />
+                  </Button>
+                </div>
+                <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words bg-background/50 border border-border p-3 text-xs font-mono text-muted-foreground">
+                  {stackLogs.text || "No log lines returned."}
+                </pre>
+              </div>
+            )}
           </CardContent>
         </Card>
       </section>
