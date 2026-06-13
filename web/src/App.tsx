@@ -63,6 +63,7 @@ import { SidebarStatusStrip, gatewayLine } from "@/components/SidebarStatusStrip
 import { useBelowBreakpoint } from "@nous-research/ui/hooks/use-below-breakpoint";
 import { useSidebarStatus } from "@/hooks/useSidebarStatus";
 import { AuthWidget } from "@/components/AuthWidget";
+import ActivitySidebarIndicator from "@/components/ActivitySidebarIndicator";
 import { PageHeaderProvider } from "@/contexts/PageHeaderProvider";
 import { useSystemActions } from "@/contexts/useSystemActions";
 import type { SystemAction } from "@/contexts/system-actions-context";
@@ -948,6 +949,8 @@ function SidebarSystemActions({
       </div>
 
       <GatewayDot collapsed={collapsed} status={status} tooltipWarmRef={tooltipWarmRef} />
+
+      <ActivitySidebarIndicator collapsed={collapsed} onNavigate={onNavigate} />
 
       <ul className="flex flex-col">
         {items.map((item) => (
