@@ -84,6 +84,7 @@ import WebhooksPage from "@/pages/WebhooksPage";
 import SystemPage from "@/pages/SystemPage";
 import SoulsPage from "@/pages/SoulsPage";
 import DecepticonPage from "@/pages/DecepticonPage";
+import VaultBrowserPage from "@/pages/VaultBrowserPage";
 import ChatPage from "@/pages/ChatPage";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { ThemeSwitcher } from "@/components/ThemeSwitcher";
@@ -115,10 +116,6 @@ function DashboardPlaceholderPage({ title }: { title: string }) {
       </p>
     </div>
   );
-}
-
-function VaultRoute() {
-  return <DashboardPlaceholderPage title="Vault" />;
 }
 
 function RouterRoute() {
@@ -161,7 +158,7 @@ const BUILTIN_ROUTES_CORE: Record<string, ComponentType> = {
   "/": RootRedirect,
   "/souls": SoulsPage,
   "/decepticon": DecepticonPage,
-  "/vault": VaultRoute,
+  "/vault": VaultBrowserPage,
   "/router": RouterRoute,
   "/browser": BrowserRoute,
   "/bots": BotsRoute,
