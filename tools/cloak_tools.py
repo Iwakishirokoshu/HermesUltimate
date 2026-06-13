@@ -1,3 +1,4 @@
+from tools.cloak.click import cloak_click
 from tools.cloak.navigate import cloak_navigate
 from tools.registry import registry
 
@@ -19,12 +20,34 @@ CLOAK_NAVIGATE_SCHEMA = {
     },
 }
 
+CLOAK_CLICK_SCHEMA = {
+    "name": "cloak.click",
+    "description": "Click an element in the active Cloak browser page using a CSS selector.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "selector": {"type": "string", "description": "CSS selector for the element to click."},
+        },
+        "required": ["selector"],
+    },
+}
+
 
 registry.register(
     name="cloak.navigate",
     toolset="cloak",
     schema=CLOAK_NAVIGATE_SCHEMA,
     handler=lambda args, **kw: cloak_navigate(args.get("url") or "about:blank", args.get("timeout", 30)),
+    check_fn=check_cloak_requirements,
+    is_async=True,
+    emoji="C",
+)
+
+registry.register(
+    name="cloak.click",
+    toolset="cloak",
+    schema=CLOAK_CLICK_SCHEMA,
+    handler=lambda args, **kw: cloak_click(args.get("selector") or ""),
     check_fn=check_cloak_requirements,
     is_async=True,
     emoji="C",
