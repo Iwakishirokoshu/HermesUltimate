@@ -1,6 +1,7 @@
 from tools.cloak.click import cloak_click
 from tools.cloak.fill import cloak_fill
 from tools.cloak.navigate import cloak_navigate
+from tools.cloak.screenshot import cloak_screenshot
 from tools.registry import registry
 
 
@@ -46,6 +47,16 @@ CLOAK_FILL_SCHEMA = {
     },
 }
 
+CLOAK_SCREENSHOT_SCHEMA = {
+    "name": "cloak.screenshot",
+    "description": "Capture a PNG screenshot from the active Cloak browser page and save it into HermesVault.",
+    "parameters": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+    },
+}
+
 
 registry.register(
     name="cloak.navigate",
@@ -72,6 +83,16 @@ registry.register(
     toolset="cloak",
     schema=CLOAK_FILL_SCHEMA,
     handler=lambda args, **kw: cloak_fill(args.get("selector") or "", args.get("text") or ""),
+    check_fn=check_cloak_requirements,
+    is_async=True,
+    emoji="C",
+)
+
+registry.register(
+    name="cloak.screenshot",
+    toolset="cloak",
+    schema=CLOAK_SCREENSHOT_SCHEMA,
+    handler=lambda args, **kw: cloak_screenshot(),
     check_fn=check_cloak_requirements,
     is_async=True,
     emoji="C",
