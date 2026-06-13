@@ -12464,7 +12464,7 @@ _BUILTIN_SUBCOMMANDS = frozenset(
         "gui", "desktop", "kanban", "login", "logout", "logs", "lsp", "mcp", "memory", "migrate",
         "model", "pairing", "plugins", "portal", "postinstall", "profile", "proxy",
         "prompt-size",
-        "send", "sessions", "setup",
+        "send", "sessions", "setup", "telegram-managed-bot",
         "skills", "slack", "status", "tools", "uninstall", "update",
         "version", "webhook", "whatsapp", "chat", "secrets", "security",
         # Help-ish invocations — plugin commands not being listed in
@@ -13351,6 +13351,9 @@ def main():
     # =========================================================================
     from hermes_cli.send_cmd import register_send_subparser
     register_send_subparser(subparsers)
+
+    from hermes_cli.telegram_managed_bot import register_telegram_managed_bot_subparser
+    register_telegram_managed_bot_subparser(subparsers)
 
     # =========================================================================
     # login command

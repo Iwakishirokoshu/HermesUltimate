@@ -7,6 +7,7 @@ service; the raw Telegram token is saved locally after one-time retrieval.
 
 from __future__ import annotations
 
+import argparse
 import os
 import re
 import secrets
@@ -356,3 +357,133 @@ def auto_setup_telegram_bot(
         poll_timeout=poll_timeout,
     )
     return result.token if result else None
+
+
+def _gateway_yaml_path():
+    from hermes_cli.config import get_hermes_home
+
+    return get_hermes_home() / "gateway.yaml"
+
+
+def _load_gateway_yaml() -> dict:
+    path = _gateway_yaml_path()
+    if not path.exists():
+        return {}
+    try:
+        import yaml
+
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except Exception as exc:
+        raise RuntimeError(f"Could not read {path}: {exc}") from exc
+    if not isinstance(data, dict):
+        raise RuntimeError(f"{path} must contain a YAML mapping")
+    return data
+
+
+def _bot_candidates(entry: dict, index: int, total: int) -> set[str]:
+    candidates = {
+        str(value).strip()
+        for value in (
+            entry.get("id"),
+            entry.get("username"),
+            entry.get("name"),
+            f"telegram-{index + 1}",
+        )
+        if value is not None and str(value).strip()
+    }
+    if total == 1 or index == 0:
+        candidates.add("telegram")
+    return candidates
+
+
+def resolve_gateway_bot_token(bot_id: str) -> str:
+    """Return the token for a named bot in ~/.hermes/gateway.yaml."""
+    requested = str(bot_id or "").strip()
+    if not requested:
+        raise ValueError("bot_id is required")
+
+    data = _load_gateway_yaml()
+    telegrams = data.get("telegrams")
+    if not isinstance(telegrams, list):
+        raise ValueError("gateway.yaml has no telegrams: list")
+
+    entries = [entry for entry in telegrams if isinstance(entry, dict)]
+    for index, entry in enumerate(entries):
+        candidates = _bot_candidates(entry, index, len(entries))
+        normalized = {candidate.lstrip("@") for candidate in candidates}
+        if requested in candidates or requested.lstrip("@") in normalized:
+            token = str(entry.get("token") or "").strip()
+            if not token:
+                raise ValueError(f"bot '{requested}' has no token")
+            return token
+
+    raise ValueError(f"unknown Telegram bot id: {requested}")
+
+
+def cmd_telegram_managed_bot(args: argparse.Namespace) -> None:
+    action = getattr(args, "telegram_managed_bot_action", None)
+    if action != "send":
+        print("Usage: hermes telegram-managed-bot send [--bot-id ID] --to TARGET MESSAGE", file=sys.stderr)
+        sys.exit(2)
+
+    bot_id = getattr(args, "bot_id", None) or getattr(args, "parent_bot_id", None)
+    if bot_id:
+        try:
+            os.environ["TELEGRAM_BOT_TOKEN"] = resolve_gateway_bot_token(bot_id)
+        except (RuntimeError, ValueError) as exc:
+            print(f"hermes telegram-managed-bot: {exc}", file=sys.stderr)
+            sys.exit(1)
+
+    from hermes_cli.send_cmd import cmd_send
+
+    cmd_send(args)
+
+
+def register_telegram_managed_bot_subparser(subparsers) -> argparse.ArgumentParser:
+    parser = subparsers.add_parser(
+        "telegram-managed-bot",
+        help="Send using a managed Telegram bot from gateway.yaml.",
+        description=(
+            "Managed Telegram bot helpers. Use send with --bot-id to select a "
+            "specific bot from ~/.hermes/gateway.yaml telegrams:."
+        ),
+    )
+    parser.add_argument(
+        "--bot-id",
+        dest="parent_bot_id",
+        metavar="ID",
+        default=None,
+        help="Default gateway.yaml telegrams bot id for subcommands.",
+    )
+
+    sub = parser.add_subparsers(dest="telegram_managed_bot_action")
+    send = sub.add_parser(
+        "send",
+        help="Send a message through a specific managed Telegram bot.",
+        description=(
+            "Send a message through Telegram, optionally selecting a configured "
+            "managed bot by id from ~/.hermes/gateway.yaml."
+        ),
+    )
+    send.add_argument(
+        "--bot-id",
+        dest="bot_id",
+        metavar="ID",
+        default=None,
+        help="gateway.yaml telegrams bot id to send with.",
+    )
+    send.add_argument(
+        "-t",
+        "--to",
+        metavar="TARGET",
+        default=None,
+        help="Delivery target, for example telegram:123456789.",
+    )
+    send.add_argument("message", nargs="?", default=None, help="Message text.")
+    send.add_argument("-f", "--file", metavar="PATH", default=None, help="Read message body from PATH.")
+    send.add_argument("-s", "--subject", metavar="LINE", default=None, help="Prepend a subject/header line.")
+    send.add_argument("-q", "--quiet", action="store_true", default=False, help="Suppress stdout on success.")
+    send.add_argument("--json", action="store_true", default=False, help="Emit raw JSON result.")
+    send.set_defaults(func=cmd_telegram_managed_bot, list_targets=False)
+    parser.set_defaults(func=cmd_telegram_managed_bot)
+    return parser
