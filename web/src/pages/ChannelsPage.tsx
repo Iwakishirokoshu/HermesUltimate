@@ -1,15 +1,18 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
+  Bot,
   Check,
   CheckCircle2,
   ExternalLink,
+  KeyRound,
   PlugZap,
   QrCode,
   Radio,
   RotateCw,
   Save,
   Settings2,
+  Users,
   WifiOff,
   X,
 } from "lucide-react";
@@ -19,11 +22,12 @@ import { Button } from "@nous-research/ui/ui/components/button";
 import { Card, CardContent } from "@nous-research/ui/ui/components/card";
 import { Input } from "@nous-research/ui/ui/components/input";
 import { Label } from "@nous-research/ui/ui/components/label";
+import { Select, SelectOption } from "@nous-research/ui/ui/components/select";
 import { Spinner } from "@nous-research/ui/ui/components/spinner";
 import { Switch } from "@nous-research/ui/ui/components/switch";
 import { Toast } from "@nous-research/ui/ui/components/toast";
 import { useToast } from "@nous-research/ui/hooks/use-toast";
-import { api } from "@/lib/api";
+import { api, fetchJSON } from "@/lib/api";
 import type {
   MessagingPlatform,
   MessagingPlatformEnvVar,
@@ -55,6 +59,24 @@ function stateBadge(state: string) {
 
 const TELEGRAM_USER_ID_RE = /^\d+$/;
 
+interface GatewayBotInfo {
+  id: string;
+  name?: string;
+  username?: string;
+  default_soul?: string;
+  allowed_users?: string[];
+  token?: string;
+  token_masked?: string;
+  enabled?: boolean;
+  source?: "api" | "platform";
+}
+
+interface GatewayBotsResponse {
+  bots?: GatewayBotInfo[];
+}
+
+const SOUL_OPTIONS = ["default", "red"] as const;
+
 function formatExpiry(expiresAt: string): string {
   const ms = Date.parse(expiresAt) - Date.now();
   if (!Number.isFinite(ms) || ms <= 0) return "expired";
@@ -69,8 +91,29 @@ function isTerminalTelegramOnboardingError(error: unknown): boolean {
   return /\b410\b/.test(message) && /\b(expired|claimed|gone)\b/i.test(message);
 }
 
+function normalizeBots(payload: GatewayBotsResponse | GatewayBotInfo[]) {
+  const raw = Array.isArray(payload) ? payload : (payload.bots ?? []);
+  return raw.map((bot, index) => ({
+    ...bot,
+    id: bot.id || bot.username || bot.name || `bot-${index + 1}`,
+    source: "api" as const,
+  }));
+}
+
+function splitAllowedUsers(value: string | null | undefined) {
+  if (!value || value.includes("вЂў") || value.includes("*")) return [];
+  return value
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
 export default function ChannelsPage() {
   const [platforms, setPlatforms] = useState<MessagingPlatform[]>([]);
+  const [bots, setBots] = useState<GatewayBotInfo[]>([]);
+  const [botsLoading, setBotsLoading] = useState(true);
+  const [botsError, setBotsError] = useState<string | null>(null);
+  const [botSoulSaving, setBotSoulSaving] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const { toast, showToast } = useToast();
   const { setEnd } = usePageHeader();
@@ -97,9 +140,22 @@ export default function ChannelsPage() {
       .catch((e) => showToast(`Error: ${e}`, "error"));
   }, [showToast]);
 
+  const loadBots = useCallback(() => {
+    setBotsLoading(true);
+    setBotsError(null);
+    return fetchJSON<GatewayBotsResponse | GatewayBotInfo[]>("/api/gateway/bots")
+      .then((res) => setBots(normalizeBots(res)))
+      .catch((e) => {
+        setBots([]);
+        setBotsError(String(e));
+      })
+      .finally(() => setBotsLoading(false));
+  }, []);
+
   useEffect(() => {
     load().finally(() => setLoading(false));
-  }, [load]);
+    void loadBots();
+  }, [load, loadBots]);
 
   const openConfig = (platform: MessagingPlatform) => {
     const initial: Record<string, string> = {};
@@ -212,6 +268,51 @@ export default function ChannelsPage() {
     [platforms],
   );
 
+  const fallbackBots = useMemo(() => {
+    const telegram = platforms.find((p) => p.id === "telegram");
+    if (!telegram) return [];
+    const token = telegram.env_vars.find((item) => item.key === "TELEGRAM_BOT_TOKEN");
+    const allowed = telegram.env_vars.find((item) => item.key === "TELEGRAM_ALLOWED_USERS");
+    return [
+      {
+        id: "telegram",
+        name: telegram.name,
+        default_soul: "default",
+        allowed_users: splitAllowedUsers(allowed?.redacted_value),
+        token_masked: token?.redacted_value ?? (token?.is_set ? "••••••" : "not set"),
+        enabled: telegram.enabled,
+        source: "platform" as const,
+      },
+    ];
+  }, [platforms]);
+
+  const displayedBots = bots.length > 0 ? bots : fallbackBots;
+
+  const updateBotSoul = async (bot: GatewayBotInfo, defaultSoul: string) => {
+    setBotSoulSaving(bot.id);
+    setBotsError(null);
+    setBots((prev) =>
+      prev.map((item) =>
+        item.id === bot.id ? { ...item, default_soul: defaultSoul } : item,
+      ),
+    );
+    try {
+      await fetchJSON<{ ok: boolean }>(
+        `/api/gateway/bots/${encodeURIComponent(bot.id)}`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ default_soul: defaultSoul }),
+        },
+      );
+      await loadBots();
+    } catch (e) {
+      setBotsError(String(e));
+    } finally {
+      setBotSoulSaving(null);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-24">
@@ -265,6 +366,15 @@ export default function ChannelsPage() {
         written to <code className="font-courier">~/.hermes/.env</code>; the
         gateway connects each enabled channel on its next restart.
       </p>
+
+      <TelegramBotsSection
+        bots={displayedBots}
+        error={botsError}
+        loading={botsLoading}
+        savingId={botSoulSaving}
+        onRefresh={loadBots}
+        onSoulChange={updateBotSoul}
+      />
 
       {/* Config modal */}
       {editing && (
@@ -457,6 +567,141 @@ export default function ChannelsPage() {
         })}
       </div>
     </div>
+  );
+}
+
+function TelegramBotsSection({
+  bots,
+  error,
+  loading,
+  onRefresh,
+  onSoulChange,
+  savingId,
+}: {
+  bots: GatewayBotInfo[];
+  error: string | null;
+  loading: boolean;
+  onRefresh: () => Promise<void>;
+  onSoulChange: (bot: GatewayBotInfo, defaultSoul: string) => void;
+  savingId: string | null;
+}) {
+  return (
+    <Card className="border-border">
+      <CardContent className="grid gap-4 p-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-3">
+            <Bot className="h-5 w-5 text-muted-foreground" />
+            <div className="grid gap-0.5">
+              <h2 className="font-mondwest normal-case text-sm font-medium">
+                Telegram bots
+              </h2>
+              <span className="text-xs text-muted-foreground">
+                {bots.length} configured bot{bots.length === 1 ? "" : "s"}
+              </span>
+            </div>
+          </div>
+          <Button
+            size="sm"
+            outlined
+            onClick={() => void onRefresh()}
+            disabled={loading}
+            prefix={loading ? <Spinner /> : <RotateCw className="h-4 w-4" />}
+          >
+            Refresh
+          </Button>
+        </div>
+
+        {error && (
+          <div className="border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning">
+            {error}
+          </div>
+        )}
+
+        {loading && bots.length === 0 ? (
+          <div className="flex items-center justify-center py-8">
+            <Spinner className="text-xl text-primary" />
+          </div>
+        ) : bots.length === 0 ? (
+          <div className="border border-border/60 px-3 py-6 text-center text-sm text-muted-foreground">
+            No Telegram bots returned.
+          </div>
+        ) : (
+          <div className="grid gap-3">
+            {bots.map((bot) => {
+              const token = bot.token_masked ?? bot.token ?? "not set";
+              const allowedUsers = bot.allowed_users ?? [];
+              return (
+                <div
+                  key={bot.id}
+                  className="grid gap-3 border border-border/60 p-3"
+                >
+                  <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="min-w-0">
+                      <div className="flex min-w-0 flex-wrap items-center gap-2">
+                        <span className="truncate text-sm font-medium text-foreground">
+                          {bot.username ? `@${bot.username}` : bot.name ?? bot.id}
+                        </span>
+                        <Badge tone={bot.enabled === false ? "secondary" : "success"}>
+                          {bot.enabled === false ? "disabled" : "enabled"}
+                        </Badge>
+                        {bot.source === "platform" && (
+                          <Badge tone="outline">platform</Badge>
+                        )}
+                      </div>
+                      <div className="mt-2 flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+                        <KeyRound className="h-3.5 w-3.5 shrink-0" />
+                        <span className="truncate font-courier">{token}</span>
+                      </div>
+                    </div>
+
+                    <div className="grid min-w-[180px] gap-1.5">
+                      <Label htmlFor={`bot-soul-${bot.id}`} className="text-xs">
+                        default_soul
+                      </Label>
+                      <Select
+                        id={`bot-soul-${bot.id}`}
+                        value={bot.default_soul ?? "default"}
+                        disabled={savingId === bot.id}
+                        onValueChange={(value) => onSoulChange(bot, value)}
+                      >
+                        {SOUL_OPTIONS.map((soul) => (
+                          <SelectOption key={soul} value={soul}>
+                            {soul}
+                          </SelectOption>
+                        ))}
+                      </Select>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-2">
+                    <div className="flex items-center gap-2 text-xs uppercase tracking-[0.12em] text-muted-foreground">
+                      <Users className="h-3.5 w-3.5" />
+                      allowed_users
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {allowedUsers.length > 0 ? (
+                        allowedUsers.map((user) => (
+                          <span
+                            key={user}
+                            className="border border-border px-2 py-1 font-courier text-xs text-text-secondary"
+                          >
+                            {user}
+                          </span>
+                        ))
+                      ) : (
+                        <span className="text-xs text-muted-foreground">
+                          none
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
