@@ -1,0 +1,24 @@
+jobs:
+  - name: vault-tier-rotate
+    schedule: "0 3 * * *"
+    script: scripts/vault-tier-rotate.py
+    no_agent: true
+    deliver: local
+
+  - name: vault-consolidate
+    schedule: "0 4 * * 0"
+    script: scripts/vault-consolidate.py
+    no_agent: true
+    deliver: local
+
+  - name: vault-prune
+    schedule: "0 5 1 * *"
+    script: scripts/vault-prune.py
+    no_agent: true
+    deliver: local
+
+  - name: vault-rebuild-index
+    schedule: "*/15 * * * *"
+    script: scripts/vault-rebuild-index.py
+    no_agent: true
+    deliver: local

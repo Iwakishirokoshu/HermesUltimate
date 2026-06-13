@@ -13680,6 +13680,10 @@ def main():
     # cron status
     cron_subparsers.add_parser("status", help="Check if cron scheduler is running")
 
+    # cron load
+    cron_load = cron_subparsers.add_parser("load", help="Load scheduled jobs from a YAML manifest")
+    cron_load.add_argument("path", help="Path to a cron jobs YAML manifest")
+
     # cron tick (mostly for debugging)
     cron_tick = cron_subparsers.add_parser("tick", help="Run due jobs once and exit")
     _add_accept_hooks_flag(cron_tick)

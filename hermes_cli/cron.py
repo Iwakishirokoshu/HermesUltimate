@@ -7,6 +7,7 @@ pause/resume/run/remove, status, and tick.
 
 import json
 import re
+import shutil
 import sys
 from pathlib import Path
 from typing import Iterable, List, Optional
@@ -187,6 +188,129 @@ def cron_status():
     print()
 
 
+def _load_yaml_jobs(path: Path) -> list[dict]:
+    import yaml
+
+    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    if isinstance(data, list):
+        jobs = data
+    elif isinstance(data, dict):
+        jobs = data.get("jobs", [])
+    else:
+        raise ValueError("cron load expects a YAML list or a mapping with jobs:")
+    if not isinstance(jobs, list):
+        raise ValueError("cron load jobs must be a list")
+    return [job for job in jobs if isinstance(job, dict)]
+
+
+def _stage_yaml_script(script: Optional[str], manifest_path: Path) -> Optional[str]:
+    if not script:
+        return None
+    script_text = str(script).strip()
+    if not script_text:
+        return None
+    normalized = script_text.replace("\\", "/")
+    if not normalized.startswith("scripts/"):
+        return script_text
+
+    from hermes_cli.config import get_hermes_home
+
+    source_rel = Path(*normalized.split("/"))
+    candidates = [
+        PROJECT_ROOT / source_rel,
+        manifest_path.parent / source_rel,
+        manifest_path.parent.parent / source_rel,
+    ]
+    target_name = source_rel.name
+    for candidate in candidates:
+        if candidate.is_file():
+            target_dir = get_hermes_home() / "scripts"
+            target_dir.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(candidate, target_dir / target_name)
+            return target_name
+    print(color(f"Warning: script not found for staging: {script_text}", Colors.YELLOW))
+    return target_name
+
+
+def cron_load(args):
+    """Load cron jobs from a YAML manifest."""
+    manifest_path = Path(args.path).expanduser().resolve()
+    if not manifest_path.is_file():
+        print(color(f"Cron manifest not found: {manifest_path}", Colors.RED))
+        return 1
+
+    from cron.jobs import create_job, list_jobs, update_job
+
+    try:
+        raw_jobs = _load_yaml_jobs(manifest_path)
+    except Exception as exc:
+        print(color(f"Failed to load cron manifest: {exc}", Colors.RED))
+        return 1
+
+    existing_by_name = {job.get("name"): job for job in list_jobs(include_disabled=True)}
+    created = 0
+    updated = 0
+    for raw in raw_jobs:
+        name = str(raw.get("name") or "").strip()
+        schedule = str(raw.get("schedule") or "").strip()
+        if not name or not schedule:
+            print(color("Skipping cron job without name or schedule", Colors.YELLOW))
+            continue
+        script = _stage_yaml_script(raw.get("script"), manifest_path)
+        no_agent = bool(raw.get("no_agent", bool(script)))
+        prompt = str(raw.get("prompt") or "")
+        deliver = raw.get("deliver", "local")
+        skills = raw.get("skills")
+        if isinstance(skills, str):
+            skills = [item.strip() for item in skills.split(",") if item.strip()]
+        elif not isinstance(skills, list):
+            skills = None
+        workdir = raw.get("workdir")
+        profile = raw.get("profile")
+        enabled_toolsets = raw.get("enabled_toolsets")
+        if isinstance(enabled_toolsets, str):
+            enabled_toolsets = [item.strip() for item in enabled_toolsets.split(",") if item.strip()]
+        elif not isinstance(enabled_toolsets, list):
+            enabled_toolsets = None
+
+        existing = existing_by_name.get(name)
+        if existing:
+            update_job(
+                existing["id"],
+                {
+                    "name": name,
+                    "prompt": prompt,
+                    "schedule": schedule,
+                    "script": script,
+                    "no_agent": no_agent,
+                    "deliver": deliver,
+                    "skills": skills,
+                    "enabled_toolsets": enabled_toolsets,
+                    "workdir": workdir,
+                    "profile": profile,
+                },
+            )
+            updated += 1
+        else:
+            create_job(
+                prompt=prompt,
+                schedule=schedule,
+                name=name,
+                deliver=deliver,
+                skills=skills,
+                script=script,
+                enabled_toolsets=enabled_toolsets,
+                workdir=workdir,
+                profile=profile,
+                no_agent=no_agent,
+            )
+            created += 1
+    print(color(f"Loaded cron jobs from {manifest_path}", Colors.GREEN))
+    print(f"  Created: {created}")
+    print(f"  Updated: {updated}")
+    return 0
+
+
 def cron_create(args):
     # Defense: reject cron jobs that contain gateway lifecycle commands.
     # Prevents agents from scheduling their own restart/stop, which creates
@@ -338,6 +462,9 @@ def cron_command(args):
     if subcmd == "status":
         cron_status()
         return 0
+
+    if subcmd == "load":
+        return cron_load(args)
 
     if subcmd == "tick":
         cron_tick()
