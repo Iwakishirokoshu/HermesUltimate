@@ -373,7 +373,11 @@ def should_bypass_active_session(command_name: str | None) -> bool:
     ACTIVE_SESSION_BYPASS_COMMANDS remains the subset of commands with
     explicit Level-2 handlers; the rest fall through to the catch-all.
     """
-    return resolve_command(command_name) is not None if command_name else False
+    if not command_name:
+        return False
+    if command_name in {"red", "blue", "soul"}:
+        return True
+    return resolve_command(command_name) is not None
 
 
 def _resolve_config_gates() -> set[str]:

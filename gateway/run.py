@@ -1875,6 +1875,7 @@ class GatewayRunner:
         self._restart_drain_timeout = self._load_restart_drain_timeout()
         self._provider_routing = self._load_provider_routing()
         self._fallback_model = self._load_fallback_model()
+        self._soul_router = None
 
         # Wire process registry into session store for reset protection
         from tools.process_registry import process_registry
@@ -7654,6 +7655,10 @@ class GatewayRunner:
             # clearly moved on.
             _slash_confirm_mod.clear_if_stale(_quick_key)
 
+        soul_response = await self._handle_soul_command(event)
+        if soul_response is not None:
+            return soul_response
+
         # PRIORITY handling when an agent is already running for this session.
         # Default behavior is to interrupt immediately so user text/stop messages
         # are handled with minimal latency.
@@ -8866,6 +8871,7 @@ class GatewayRunner:
         session_entry = self.session_store.get_or_create_session(source)
         session_key = session_entry.session_key
         self._cache_session_source(session_key, source)
+        soul_config = self._get_active_soul_config(source)
         if self._is_telegram_topic_lane(source):
             try:
                 binding = self._session_db.get_telegram_topic_binding(
@@ -9483,6 +9489,7 @@ class GatewayRunner:
                 run_generation=run_generation,
                 event_message_id=self._reply_anchor_for_event(event),
                 channel_prompt=event.channel_prompt,
+                soul_config=soul_config,
             )
 
             # Stop persistent typing indicator now that the agent is done
@@ -14804,6 +14811,120 @@ class GatewayRunner:
         """Return the platform-specific reply anchor for GatewayRunner sends."""
         return _reply_anchor_for_event(event)
 
+    def _get_soul_router(self):
+        router = getattr(self, "_soul_router", None)
+        if router is None:
+            from hermes_cli.soul_router import SoulRouter
+
+            router = SoulRouter()
+            self._soul_router = router
+        return router
+
+    def _soul_chat_id(self, source: SessionSource) -> str:
+        chat_id = getattr(source, "chat_id", None)
+        if chat_id:
+            return str(chat_id)
+        user_id = getattr(source, "user_id", None)
+        if user_id:
+            return str(user_id)
+        try:
+            return self._session_key_for_source(source)
+        except Exception:
+            platform = getattr(getattr(source, "platform", None), "value", None)
+            return str(platform or "default")
+
+    def _resolve_soul_md_path(self, soul_config: Any) -> Optional[str]:
+        raw_path = getattr(soul_config, "soul_md", None)
+        if not raw_path:
+            return None
+        path = Path(str(raw_path)).expanduser()
+        if not path.is_absolute():
+            path = Path(__file__).resolve().parents[1] / path
+        return str(path)
+
+    def _soul_cache_keys(self, soul_config: Any) -> Dict[str, Any]:
+        keys: Dict[str, Any] = {
+            "soul.name": getattr(soul_config, "name", None),
+            "soul.backend": getattr(soul_config, "backend", None),
+            "soul.soul_md": getattr(soul_config, "soul_md", None),
+        }
+        soul_path = self._resolve_soul_md_path(soul_config)
+        if soul_path:
+            try:
+                keys["soul.soul_md_mtime"] = Path(soul_path).stat().st_mtime
+            except OSError:
+                keys["soul.soul_md_mtime"] = None
+        return keys
+
+    def _soul_context_note(self, soul_config: Any) -> str:
+        name = str(getattr(soul_config, "name", "") or "").strip()
+        backend = str(getattr(soul_config, "backend", "") or "").strip()
+        soul_md = str(getattr(soul_config, "soul_md", "") or "").strip()
+        if not name:
+            return ""
+        parts = [f'Active Hermes soul: "{name}"']
+        if backend:
+            parts.append(f"backend: {backend}")
+        if soul_md:
+            parts.append(f"soul_md: {soul_md}")
+        return "[System note: " + "; ".join(parts) + ".]"
+
+    def _bind_soul_config_to_agent(self, agent: Any, soul_config: Any) -> None:
+        if agent is None:
+            return
+        try:
+            agent.soul_config = soul_config
+            agent.soul_name = getattr(soul_config, "name", None) if soul_config is not None else None
+            agent.soul_md_path = self._resolve_soul_md_path(soul_config) if soul_config is not None else None
+            agent.soul_vault_load = getattr(soul_config, "vault_load", None) if soul_config is not None else None
+        except Exception:
+            logger.debug("Failed to bind soul_config to agent", exc_info=True)
+
+    def _get_active_soul_config(self, source: SessionSource) -> Optional[Any]:
+        try:
+            return self._get_soul_router().get_active_soul(self._soul_chat_id(source))
+        except Exception as exc:
+            logger.debug("Could not resolve active soul for gateway message: %s", exc)
+            return None
+
+    async def _handle_soul_command(self, event: MessageEvent) -> Optional[str]:
+        command = event.get_command()
+        if command not in {"red", "blue", "soul"}:
+            return None
+
+        source = event.source
+        router = self._get_soul_router()
+        chat_id = self._soul_chat_id(source)
+
+        if command == "red":
+            target = "red"
+        elif command == "blue":
+            target = "default"
+        else:
+            raw_target = event.get_command_args().strip()
+            if not raw_target:
+                active = router.get_active_soul(chat_id)
+                available = ", ".join(router.list_souls()) or "(none)"
+                return (
+                    f"Active soul: {active.name} ({active.backend}).\n"
+                    f"Available souls: {available}\n"
+                    "Usage: /soul <name>"
+                )
+            target = raw_target.split(maxsplit=1)[0].strip().lower()
+
+        try:
+            soul_config = router.set_active_soul(chat_id, target)
+        except ValueError as exc:
+            available = ", ".join(router.list_souls()) or "(none)"
+            return f"{exc}\nAvailable souls: {available}"
+
+        try:
+            self._evict_cached_agent(self._session_key_for_source(source))
+        except Exception:
+            logger.debug("Could not evict cached agent after soul switch", exc_info=True)
+
+        return f"Active soul: {soul_config.name} ({soul_config.backend})."
+
 
     # ------------------------------------------------------------------
     # /approve & /deny — explicit dangerous-command approval
@@ -16952,6 +17073,7 @@ class GatewayRunner:
         _interrupt_depth: int = 0,
         event_message_id: Optional[str] = None,
         channel_prompt: Optional[str] = None,
+        soul_config: Optional[Any] = None,
     ) -> Dict[str, Any]:
         """
         Run the agent with the given message and context.
@@ -16965,6 +17087,9 @@ class GatewayRunner:
         This is run in a thread pool to not block the event loop.
         Supports interruption via new messages.
         """
+        if soul_config is None:
+            soul_config = self._get_active_soul_config(source)
+
         # ---- Proxy mode: delegate to remote API server ----
         if self._get_proxy_url():
             return await self._run_agent_via_proxy(
@@ -17698,6 +17823,10 @@ class GatewayRunner:
             event_channel_prompt = (channel_prompt or "").strip()
             if event_channel_prompt:
                 combined_ephemeral = (combined_ephemeral + "\n\n" + event_channel_prompt).strip()
+            if soul_config is not None:
+                soul_note = self._soul_context_note(soul_config)
+                if soul_note:
+                    combined_ephemeral = (combined_ephemeral + "\n\n" + soul_note).strip()
             if self._ephemeral_system_prompt:
                 combined_ephemeral = (combined_ephemeral + "\n\n" + self._ephemeral_system_prompt).strip()
 
@@ -17840,12 +17969,15 @@ class GatewayRunner:
             # Check agent cache — reuse the AIAgent from the previous message
             # in this session to preserve the frozen system prompt and tool
             # schemas for prompt cache hits.
+            _cache_keys = self._extract_cache_busting_config(user_config)
+            if soul_config is not None:
+                _cache_keys.update(self._soul_cache_keys(soul_config))
             _sig = self._agent_config_signature(
                 turn_route["model"],
                 turn_route["runtime"],
                 enabled_toolsets,
                 combined_ephemeral,
-                cache_keys=self._extract_cache_busting_config(user_config),
+                cache_keys=_cache_keys,
                 user_id=getattr(source, "user_id", None),
                 user_id_alt=getattr(source, "user_id_alt", None),
             )
@@ -17909,6 +18041,7 @@ class GatewayRunner:
 
             # Per-message state — callbacks and reasoning config change every
             # turn and must not be baked into the cached agent constructor.
+            self._bind_soul_config_to_agent(agent, soul_config)
             agent.tool_progress_callback = progress_callback if tool_progress_enabled else None
             # Discord voice verbal-ack hook (fires once per turn on first tool
             # call; armed only when in a voice channel with the mixer running).
