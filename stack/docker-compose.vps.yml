@@ -1,0 +1,22 @@
+services:
+  caddy:
+    image: caddy:2
+    container_name: hermes-caddy
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      ACME_EMAIL: ${ACME_EMAIL:-admin@example.com}
+      HERMES_DOMAIN: ${HERMES_DOMAIN:-example.com}
+      CADDY_BIND: ${CADDY_BIND:-0.0.0.0}
+      CADDY_BASIC_AUTH_USER: ${CADDY_BASIC_AUTH_USER:-admin}
+      CADDY_BASIC_AUTH_HASH: ${CADDY_BASIC_AUTH_HASH:-$$2a$$14$$H3zqLfy7jGu8e8i3sP77GO4D80NT5k33Z3dxh3j8QOBySmk2KZnAu}
+      TAILSCALE_ONLY: ${TAILSCALE_ONLY:-0}
+      TAILSCALE_ALLOWED_CIDRS: ${TAILSCALE_ALLOWED_CIDRS:-100.64.0.0/10}
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:

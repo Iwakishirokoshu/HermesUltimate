@@ -680,3 +680,10 @@ files: scripts/migrate-to-vps.sh, .progress/
 acceptance: Git Bash bash -n/help + dry-run remote install/webhook flow -> PASS
 notes: Created VPS migration helper for rsyncing ~/.hermes, HermesVault, browser profiles, running remote install.sh in --mode vps, and switching Telegram webhooks when domain/token are supplied. Live VPS migration was not run because no VPS/domain credentials are configured in this local environment.
 commit: c7dad82
+2026-06-14 00:24 | T-801 |
+title: stack/caddy/Caddyfile
+type: create
+files: stack/caddy/Caddyfile, .progress/
+acceptance: docker run caddy:2 caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile -> PASS
+notes: Added dashboard/vnc/router reverse proxies with Auto-TLS, basic-auth, optional Tailscale CIDR gate, compression, and security headers. Validation used caddy:2 Docker image because local caddy binary was not installed.
+commit: f0329a9
