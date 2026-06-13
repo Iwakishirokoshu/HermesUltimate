@@ -88,3 +88,31 @@ Soul selection is stored per chat in `~/.hermes/soul_state.db`.
 
 After a switch, Hermes evicts the cached agent for that chat so the next turn
 rebuilds the system prompt with the selected soul.
+
+## HermesRedBot
+
+Use a second Telegram bot when you want security sessions to start directly in
+the `red` soul without typing `/red` first. Configure it in
+`~/.hermes/gateway.yaml` under `telegrams:`:
+
+```yaml
+telegrams:
+  - id: telegram
+    name: Hermes Main Bot
+    token: "<main bot token>"
+    default_soul: default
+    allowed_users:
+      - "<your Telegram user id>"
+
+  - id: red
+    name: HermesRedBot
+    token: "<red bot token>"
+    default_soul: red
+    allowed_users:
+      - "<your Telegram user id>"
+```
+
+When Hermes starts the gateway, messages received by the `red` bot use
+`default_soul: red` for new chats. A manual `/blue`, `/red`, or `/soul <name>`
+choice still wins for chats that already have an active soul saved in
+`~/.hermes/soul_state.db`.
