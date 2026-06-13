@@ -296,6 +296,12 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
             cwd=resolve_context_cwd(), skip_soul=_soul_loaded)
         if context_files_prompt:
             context_parts.append(context_files_prompt)
+        vault_load_prompt = _r.build_vault_load_prompt(
+            getattr(agent, "soul_vault_load", None),
+            current_slug=getattr(agent, "current_slug", None),
+        )
+        if vault_load_prompt:
+            context_parts.append(vault_load_prompt)
 
     # ── Volatile tier (changes per session/turn — never cached) ───
     volatile_parts: List[str] = []

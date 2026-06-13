@@ -4,6 +4,7 @@ All functions are stateless. AIAgent._build_system_prompt() calls these to
 assemble pieces, then combines them with memory and ephemeral prompts.
 """
 
+import fnmatch
 import json
 import logging
 import os
@@ -1394,6 +1395,168 @@ def load_soul_md(soul_path: Optional[str | Path] = None) -> Optional[str]:
     except Exception as e:
         logger.debug("Could not read SOUL.md from %s: %s", path, e)
         return None
+
+
+def _vault_root() -> Path:
+    return Path(os.environ.get("HERMES_VAULT_PATH", "~/HermesVault")).expanduser().resolve()
+
+
+def _vault_pattern(value: object, current_slug: Optional[str]) -> str:
+    pattern = str(value or "").strip().replace("\\", "/").lstrip("/")
+    slug = str(current_slug or os.environ.get("HERMES_CURRENT_SLUG") or "").strip()
+    return pattern.replace("${current_slug}", slug)
+
+
+def _is_safe_vault_pattern(pattern: str) -> bool:
+    parts = Path(pattern).parts
+    return bool(pattern) and not any(part == ".." for part in parts)
+
+
+def _vault_relative(path: Path, root: Path) -> str:
+    return path.relative_to(root).as_posix()
+
+
+def _collect_vault_load_files(
+    vault_load: Optional[dict],
+    *,
+    current_slug: Optional[str] = None,
+    vault_root: Optional[Path] = None,
+) -> list[Path]:
+    """Resolve soul vault_load include/exclude globs to vault files."""
+    if not isinstance(vault_load, dict):
+        return []
+
+    root = (vault_root or _vault_root()).expanduser().resolve()
+    includes = vault_load.get("include") or []
+    excludes = vault_load.get("exclude") or []
+    if isinstance(includes, (str, bytes)):
+        includes = [includes]
+    if isinstance(excludes, (str, bytes)):
+        excludes = [excludes]
+
+    exclude_patterns = [
+        _vault_pattern(pattern, current_slug)
+        for pattern in excludes
+        if _is_safe_vault_pattern(_vault_pattern(pattern, current_slug))
+    ]
+
+    seen: set[Path] = set()
+    files: list[Path] = []
+    for raw_pattern in includes:
+        pattern = _vault_pattern(raw_pattern, current_slug)
+        if not _is_safe_vault_pattern(pattern):
+            continue
+        glob_patterns = [pattern]
+        if pattern.endswith("/**"):
+            glob_patterns.append(pattern + "/*")
+        try:
+            matches = sorted(
+                {match for glob_pattern in glob_patterns for match in root.glob(glob_pattern)}
+            )
+        except (OSError, ValueError):
+            logger.debug("Invalid vault_load pattern skipped: %s", pattern)
+            continue
+        for path in matches:
+            try:
+                resolved = path.resolve()
+                resolved.relative_to(root)
+            except (OSError, ValueError):
+                continue
+            if not resolved.is_file() or resolved in seen:
+                continue
+            rel = _vault_relative(resolved, root)
+            if any(fnmatch.fnmatchcase(rel, exclude) for exclude in exclude_patterns):
+                continue
+            seen.add(resolved)
+            files.append(resolved)
+    return files
+
+
+def _read_vault_snippet(path: Path, snippet_chars: int) -> str:
+    content = path.read_text(encoding="utf-8", errors="replace").strip()
+    if snippet_chars > 0 and len(content) > snippet_chars:
+        return content[:snippet_chars].rstrip() + "\n\n[truncated; use vault.read for the full file]"
+    return content
+
+
+def _format_vault_sections(files: list[Path], root: Path, snippet_chars: int) -> tuple[str, list[str]]:
+    sections: list[str] = []
+    paths: list[str] = []
+    for path in files:
+        try:
+            rel = _vault_relative(path, root)
+            snippet = _read_vault_snippet(path, snippet_chars)
+        except Exception as exc:
+            logger.debug("Could not read vault_load file %s: %s", path, exc)
+            continue
+        if not snippet:
+            continue
+        paths.append(rel)
+        sections.append(f"### {rel}\n\n{snippet}")
+    return "\n\n".join(sections), paths
+
+
+def build_vault_load_prompt(
+    vault_load: Optional[dict],
+    *,
+    current_slug: Optional[str] = None,
+    vault_root: Optional[Path] = None,
+) -> str:
+    """Build a bounded HermesVault preload block for an active soul."""
+    if not isinstance(vault_load, dict):
+        return ""
+
+    root = (vault_root or _vault_root()).expanduser().resolve()
+    if not root.exists():
+        return ""
+
+    try:
+        budget_kb = int(vault_load.get("budget_kb", 0) or 0)
+    except (TypeError, ValueError):
+        budget_kb = 0
+    if budget_kb <= 0:
+        return ""
+
+    try:
+        snippet_chars = int(vault_load.get("snippet_chars", 2000) or 2000)
+    except (TypeError, ValueError):
+        snippet_chars = 2000
+    snippet_chars = max(0, snippet_chars)
+
+    files = _collect_vault_load_files(
+        vault_load,
+        current_slug=current_slug,
+        vault_root=root,
+    )
+    if not files:
+        return ""
+
+    body, paths = _format_vault_sections(files, root, snippet_chars)
+    if not body:
+        return ""
+
+    budget_chars = budget_kb * 1024
+    header = "# HermesVault Preload\n\n"
+    loaded_line = "Loaded paths:\n" + "\n".join(f"- {path}" for path in paths)
+    prompt = f"{header}{loaded_line}\n\n{body}"
+    if len(prompt) <= budget_chars:
+        return prompt
+
+    index_path = root / "INDEX.md"
+    fallback_sections = []
+    fallback_paths = []
+    if index_path.exists() and index_path.is_file():
+        body, fallback_paths = _format_vault_sections([index_path], root, snippet_chars)
+        if body:
+            fallback_sections.append(body)
+    notice = (
+        "Vault preload exceeded the soul budget; only INDEX.md is included. "
+        "use vault.search/vault.read for specific files."
+    )
+    loaded = "Loaded paths:\n" + "\n".join(f"- {path}" for path in fallback_paths)
+    if fallback_sections:
+        return f"{header}{loaded}\n\n{notice}\n\n" + "\n\n".join(fallback_sections)
+    return f"{header}{notice}"
 
 
 def _load_hermes_md(cwd_path: Path) -> str:
