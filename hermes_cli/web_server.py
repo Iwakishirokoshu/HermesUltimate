@@ -132,11 +132,13 @@ from hermes_cli.web_api.reach import router as _reach_router
 from hermes_cli.web_api.decepticon import router as _decepticon_router
 from hermes_cli.web_api.souls import router as _souls_router
 from hermes_cli.web_api.stack import router as _stack_router
+from hermes_cli.web_api.vault import router as _vault_router
 
 app.include_router(_reach_router)
 app.include_router(_decepticon_router)
 app.include_router(_souls_router)
 app.include_router(_stack_router)
+app.include_router(_vault_router)
 
 # ---------------------------------------------------------------------------
 # Session token for protecting sensitive endpoints (reveal).
