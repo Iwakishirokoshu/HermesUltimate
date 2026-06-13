@@ -20,6 +20,7 @@ import {
   Activity,
   BarChart3,
   BookOpen,
+  Bot,
   Clock,
   Code,
   Cpu,
@@ -97,6 +98,47 @@ function RootRedirect() {
   return <Navigate to="/sessions" replace />;
 }
 
+function DashboardPlaceholderPage({ title }: { title: string }) {
+  return (
+    <div className="mx-auto flex min-h-[50vh] max-w-5xl flex-col justify-center gap-3 px-2 py-10">
+      <p className="font-mondwest text-display text-xs uppercase tracking-[0.14em] text-text-tertiary">
+        Hermes Ultimate
+      </p>
+      <h1 className="font-mondwest text-display text-3xl uppercase tracking-[0.08em] text-midground">
+        {title}
+      </h1>
+      <p className="max-w-2xl text-sm leading-6 text-text-secondary">
+        This dashboard surface is registered and will be replaced by its full
+        implementation as the phase 4 page tasks land.
+      </p>
+    </div>
+  );
+}
+
+function SoulsRoute() {
+  return <DashboardPlaceholderPage title="Souls" />;
+}
+
+function DecepticonRoute() {
+  return <DashboardPlaceholderPage title="Decepticon" />;
+}
+
+function VaultRoute() {
+  return <DashboardPlaceholderPage title="Vault" />;
+}
+
+function RouterRoute() {
+  return <DashboardPlaceholderPage title="Router" />;
+}
+
+function BrowserRoute() {
+  return <DashboardPlaceholderPage title="Browser" />;
+}
+
+function BotsRoute() {
+  return <DashboardPlaceholderPage title="Bots" />;
+}
+
 function UnknownRouteFallback({ pluginsLoading }: { pluginsLoading: boolean }) {
   if (pluginsLoading) {
     // Render nothing during the plugin-load window — a spinner here would just flash.
@@ -123,6 +165,12 @@ const CHAT_NAV_ITEM: NavItem = {
  */
 const BUILTIN_ROUTES_CORE: Record<string, ComponentType> = {
   "/": RootRedirect,
+  "/souls": SoulsRoute,
+  "/decepticon": DecepticonRoute,
+  "/vault": VaultRoute,
+  "/router": RouterRoute,
+  "/browser": BrowserRoute,
+  "/bots": BotsRoute,
   "/sessions": SessionsPage,
   "/analytics": AnalyticsPage,
   "/models": ModelsPage,
@@ -150,6 +198,12 @@ function ChatRouteSink() {
 }
 
 const BUILTIN_NAV_REST: NavItem[] = [
+  { path: "/souls", label: "Souls", icon: Sparkles },
+  { path: "/decepticon", label: "Decepticon", icon: Shield },
+  { path: "/vault", label: "Vault", icon: Database },
+  { path: "/router", label: "Router", icon: Globe },
+  { path: "/browser", label: "Browser", icon: Eye },
+  { path: "/bots", label: "Bots", icon: Bot },
   {
     path: "/sessions",
     labelKey: "sessions",
