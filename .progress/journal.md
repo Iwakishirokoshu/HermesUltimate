@@ -1,4 +1,4 @@
-﻿2026-06-13 16:05 | T-010 |
+2026-06-13 16:05 | T-010 |
 title: stack/.env.template
 type: create
 files: stack/.env.template, .progress/next.txt
@@ -673,3 +673,10 @@ files: scripts/smoke-tests/test_install_idempotent.sh, .progress/
 acceptance: Git Bash bash -n + fake installer two-run harness -> PASS
 notes: Smoke script runs install.sh --mode local --non-interactive twice, stores logs, reports durations, and fails on nonzero install exits. Real double install was not run on this Windows host because WSL Ubuntu is absent and the script is intended for clean Linux/WSL gate.
 commit: 59e4711
+2026-06-14 00:22 | T-800 |
+title: scripts/migrate-to-vps.sh <user@host>
+type: create
+files: scripts/migrate-to-vps.sh, .progress/
+acceptance: Git Bash bash -n/help + dry-run remote install/webhook flow -> PASS
+notes: Created VPS migration helper for rsyncing ~/.hermes, HermesVault, browser profiles, running remote install.sh in --mode vps, and switching Telegram webhooks when domain/token are supplied. Live VPS migration was not run because no VPS/domain credentials are configured in this local environment.
+commit: c7dad82

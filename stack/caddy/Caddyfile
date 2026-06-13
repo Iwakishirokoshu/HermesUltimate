@@ -1,0 +1,43 @@
+{
+	email {$ACME_EMAIL}
+	admin off
+}
+
+(hermes_secure) {
+	encode zstd gzip
+
+	@tailscale_only expression `{env.TAILSCALE_ONLY} == "1" && !remote_ip({env.TAILSCALE_ALLOWED_CIDRS})`
+	respond @tailscale_only "forbidden" 403
+
+	basic_auth {
+		{$CADDY_BASIC_AUTH_USER} {$CADDY_BASIC_AUTH_HASH}
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "same-origin"
+		-Server
+	}
+}
+
+dashboard.{$HERMES_DOMAIN} {
+	import hermes_secure
+	bind {$CADDY_BIND}
+
+	reverse_proxy 127.0.0.1:8080
+}
+
+vnc.{$HERMES_DOMAIN} {
+	import hermes_secure
+	bind {$CADDY_BIND}
+
+	reverse_proxy 127.0.0.1:6080
+}
+
+router.{$HERMES_DOMAIN} {
+	import hermes_secure
+	bind {$CADDY_BIND}
+
+	reverse_proxy 127.0.0.1:20128
+}
