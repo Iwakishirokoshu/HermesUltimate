@@ -694,3 +694,10 @@ files: stack/docker-compose.vps.yml, .progress/
 acceptance: docker compose -f stack/docker-compose.yml -f stack/docker-compose.decepticon-slim.yml -f stack/docker-compose.vps.yml config -> PASS
 notes: Added explicit VPS-only Caddy overlay using host networking so Caddy can proxy native dashboard on localhost:8080 plus VNC/9router host ports. Local compose remains unchanged unless the VPS overlay is included.
 commit: 4fde77a
+2026-06-14 00:29 | T-803 |
+title: scripts/install-tailscale.sh
+type: create
+files: scripts/install-tailscale.sh, install.sh, .progress/
+acceptance: Git Bash bash -n scripts/install-tailscale.sh/install.sh + install-tailscale --help/dry-run + install.sh --help flag check -> PASS
+notes: Added Tailscale installer wrapper with --ssh default, optional auth key/hostname/tags/accept-routes, and install.sh --with-tailscale hook. Live tailscale status was not run because this host is not the target VPS and no auth key was provided.
+commit: be59793
