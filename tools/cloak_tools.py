@@ -1,4 +1,5 @@
 from tools.cloak.click import cloak_click
+from tools.cloak.fill import cloak_fill
 from tools.cloak.navigate import cloak_navigate
 from tools.registry import registry
 
@@ -32,6 +33,19 @@ CLOAK_CLICK_SCHEMA = {
     },
 }
 
+CLOAK_FILL_SCHEMA = {
+    "name": "cloak.fill",
+    "description": "Fill an input-like element in the active Cloak browser page using a CSS selector.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "selector": {"type": "string", "description": "CSS selector for the element to fill."},
+            "text": {"type": "string", "description": "Text to place in the element."},
+        },
+        "required": ["selector", "text"],
+    },
+}
+
 
 registry.register(
     name="cloak.navigate",
@@ -48,6 +62,16 @@ registry.register(
     toolset="cloak",
     schema=CLOAK_CLICK_SCHEMA,
     handler=lambda args, **kw: cloak_click(args.get("selector") or ""),
+    check_fn=check_cloak_requirements,
+    is_async=True,
+    emoji="C",
+)
+
+registry.register(
+    name="cloak.fill",
+    toolset="cloak",
+    schema=CLOAK_FILL_SCHEMA,
+    handler=lambda args, **kw: cloak_fill(args.get("selector") or "", args.get("text") or ""),
     check_fn=check_cloak_requirements,
     is_async=True,
     emoji="C",
