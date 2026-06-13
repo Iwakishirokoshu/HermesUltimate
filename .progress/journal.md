@@ -659,3 +659,10 @@ files: install.ps1, .progress/
 acceptance: powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -Help; scriptblock parse -> PASS
 notes: Windows mirror installs dependencies via winget/uv, supports the same installer flags, uses Git Bash for bash helper scripts, starts compose/dashboard, waits on service URLs, and skips wizard when -NonInteractive is set. Full clean-Windows install was not run to avoid host dependency changes.
 commit: 4ce5894
+2026-06-13 23:46 | T-704 |
+title: README.md
+type: patch
+files: README.md, .progress/
+acceptance: Select-String README.md install.sh one-liner -> PASS
+notes: Rewrote root README for Hermes Ultimate Agent with first-screen curl one-liner, Windows command, installer flags, post-install URLs, generated files, and development smoke commands.
+commit: 3b6d27f
