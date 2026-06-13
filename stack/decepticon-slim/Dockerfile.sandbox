@@ -1,0 +1,17 @@
+FROM kalilinux/kali-rolling
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y \
+    nmap \
+    sqlmap \
+    metasploit-framework \
+    hydra \
+    hashcat \
+    netcat-traditional \
+    curl \
+    python3-pip
+
+WORKDIR /workspace
+
+CMD ["/bin/bash"]
