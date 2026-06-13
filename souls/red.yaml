@@ -1,0 +1,16 @@
+name: red
+backend: decepticon
+soul_md: souls/red/SOUL.md
+allowed_toolsets:
+  - cloak
+  - reach
+  - shell
+  - vault
+  - kali
+langgraph_url: http://localhost:2024
+vault_load:
+  include:
+    - INDEX.md
+    - Engagements/${current_slug}/**
+    - Wiki/Findings/*.md
+  budget_kb: 8
