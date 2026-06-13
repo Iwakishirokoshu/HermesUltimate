@@ -1,0 +1,56 @@
+services:
+  langgraph:
+    build:
+      context: ./decepticon-slim/upstream
+      dockerfile: containers/langgraph.Dockerfile
+    container_name: hermes-decepticon-langgraph
+    restart: unless-stopped
+    command:
+      - langgraph
+      - dev
+      - --host
+      - 0.0.0.0
+      - --port
+      - "2024"
+    ports:
+      - "2024:2024"
+    environment:
+      DECEPTICON_LLM__PROXY_URL: http://9router:20128/v1
+    depends_on:
+      - 9router
+      - neo4j
+    networks:
+      - hermes-net
+
+  sandbox:
+    build:
+      context: ./decepticon-slim
+      dockerfile: Dockerfile.sandbox
+    image: hermes-decepticon-sandbox:slim
+    container_name: hermes-decepticon-sandbox
+    volumes:
+      - ${HERMES_VAULT_PATH:-~/HermesVault}/Engagements:/engagements:rw
+    networks:
+      - hermes-net
+
+  neo4j:
+    image: neo4j:5.20
+    container_name: hermes-decepticon-neo4j
+    restart: unless-stopped
+    environment:
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:-decepticon}
+      NEO4J_server_memory_heap_max__size: 128M
+    volumes:
+      - neo4j_data:/data
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    networks:
+      - hermes-net
+
+volumes:
+  neo4j_data:
+
+networks:
+  hermes-net:
+    external: true
