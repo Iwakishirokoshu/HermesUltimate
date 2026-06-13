@@ -1,4 +1,5 @@
 from tools.cloak.click import cloak_click
+from tools.cloak.cookies import cloak_cookies_export, cloak_cookies_import
 from tools.cloak.fill import cloak_fill
 from tools.cloak.navigate import cloak_navigate
 from tools.cloak.screenshot import cloak_screenshot
@@ -57,6 +58,30 @@ CLOAK_SCREENSHOT_SCHEMA = {
     },
 }
 
+CLOAK_COOKIES_EXPORT_SCHEMA = {
+    "name": "cloak.cookies_export",
+    "description": "Export cookies from the active Cloak browser, optionally filtered by domain.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "domain": {"type": "string", "description": "Optional domain filter.", "default": None},
+        },
+        "required": [],
+    },
+}
+
+CLOAK_COOKIES_IMPORT_SCHEMA = {
+    "name": "cloak.cookies_import",
+    "description": "Import cookies into the active Cloak browser from a JSON file.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "json_path": {"type": "string", "description": "Path to a cookie JSON file."},
+        },
+        "required": ["json_path"],
+    },
+}
+
 
 registry.register(
     name="cloak.navigate",
@@ -93,6 +118,26 @@ registry.register(
     toolset="cloak",
     schema=CLOAK_SCREENSHOT_SCHEMA,
     handler=lambda args, **kw: cloak_screenshot(),
+    check_fn=check_cloak_requirements,
+    is_async=True,
+    emoji="C",
+)
+
+registry.register(
+    name="cloak.cookies_export",
+    toolset="cloak",
+    schema=CLOAK_COOKIES_EXPORT_SCHEMA,
+    handler=lambda args, **kw: cloak_cookies_export(args.get("domain")),
+    check_fn=check_cloak_requirements,
+    is_async=True,
+    emoji="C",
+)
+
+registry.register(
+    name="cloak.cookies_import",
+    toolset="cloak",
+    schema=CLOAK_COOKIES_IMPORT_SCHEMA,
+    handler=lambda args, **kw: cloak_cookies_import(args.get("json_path") or ""),
     check_fn=check_cloak_requirements,
     is_async=True,
     emoji="C",
