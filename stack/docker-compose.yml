@@ -1,4 +1,4 @@
-﻿services:
+services:
   9router:
     image: decolua/9router:latest
     container_name: hermes-9router
@@ -12,6 +12,20 @@
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
     volumes:
       - 9router_data:/data
+    networks:
+      - hermes-net
+
+  vault-api:
+    build:
+      context: ./vault-api
+    container_name: hermes-vault-api
+    restart: unless-stopped
+    ports:
+      - "8090:8090"
+    environment:
+      HERMES_VAULT_PATH: /vault
+    volumes:
+      - ${HERMES_VAULT_PATH:-../HermesVault}:/vault:rw
     networks:
       - hermes-net
 
