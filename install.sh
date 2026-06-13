@@ -11,6 +11,7 @@ INSTALL_DIR="${HERMES_INSTALL_DIR:-/opt/hermes-ultimate}"
 VAULT_PATH="${HERMES_VAULT_PATH:-$HOME/HermesVault}"
 VNC_PASSWORD="${VNC_PASSWORD:-}"
 WITH_SECOND_BOT=0
+WITH_TAILSCALE=0
 NON_INTERACTIVE=0
 GENERATED_VNC_PASSWORD=0
 OS_ID=""
@@ -34,6 +35,7 @@ Options:
   --vault-path <path>           HermesVault path. Default: ~/HermesVault
   --repo-url <url>              Git repository URL for private forks
   --branch <name>               Git branch. Default: main
+  --with-tailscale              Install and bring up Tailscale SSH on VPS
   --non-interactive             Skip post-install wizard and use env vars
   -h, --help                    Show this help
 USAGE
@@ -100,6 +102,10 @@ parse_args() {
         ;;
       --with-second-bot)
         WITH_SECOND_BOT=1
+        shift
+        ;;
+      --with-tailscale)
+        WITH_TAILSCALE=1
         shift
         ;;
       --vault-path)
@@ -377,6 +383,17 @@ gen_env() {
     bash scripts/gen-env.sh
 }
 
+install_tailscale() {
+  if [[ "$WITH_TAILSCALE" -eq 0 ]]; then
+    return
+  fi
+
+  cd "$INSTALL_DIR"
+  [[ -f scripts/install-tailscale.sh ]] || die "scripts/install-tailscale.sh is missing; cannot run --with-tailscale"
+  log "installing Tailscale"
+  bash scripts/install-tailscale.sh
+}
+
 compose_args() {
   printf '%s\0' -f stack/docker-compose.yml
   case "$PROFILE" in
@@ -528,6 +545,7 @@ main() {
   init_dirs
   init_vault
   gen_env
+  install_tailscale
   start_stack
   wait_healthy
   start_dashboard

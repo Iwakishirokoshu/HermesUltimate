@@ -687,3 +687,10 @@ files: stack/caddy/Caddyfile, .progress/
 acceptance: docker run caddy:2 caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile -> PASS
 notes: Added dashboard/vnc/router reverse proxies with Auto-TLS, basic-auth, optional Tailscale CIDR gate, compression, and security headers. Validation used caddy:2 Docker image because local caddy binary was not installed.
 commit: f0329a9
+2026-06-14 00:26 | T-802 |
+title: stack/docker-compose.vps.yml
+type: create
+files: stack/docker-compose.vps.yml, .progress/
+acceptance: docker compose -f stack/docker-compose.yml -f stack/docker-compose.decepticon-slim.yml -f stack/docker-compose.vps.yml config -> PASS
+notes: Added explicit VPS-only Caddy overlay using host networking so Caddy can proxy native dashboard on localhost:8080 plus VNC/9router host ports. Local compose remains unchanged unless the VPS overlay is included.
+commit: 4fde77a
