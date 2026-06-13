@@ -1,0 +1,23 @@
+﻿services:
+  9router:
+    image: decolua/9router:latest
+    container_name: hermes-9router
+    restart: unless-stopped
+    ports:
+      - "20128:20128"
+    environment:
+      NINEROUTER_JWT_SECRET: ${NINEROUTER_JWT_SECRET:-}
+      NINEROUTER_INITIAL_PASSWORD: ${NINEROUTER_INITIAL_PASSWORD:-}
+      NINEROUTER_API_KEY: ${NINEROUTER_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    volumes:
+      - 9router_data:/data
+    networks:
+      - hermes-net
+
+volumes:
+  9router_data:
+
+networks:
+  hermes-net:
+    driver: bridge
