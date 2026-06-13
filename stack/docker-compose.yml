@@ -29,6 +29,23 @@ services:
     networks:
       - hermes-net
 
+  vnc-cloak:
+    build:
+      context: ./vnc-cloak
+    container_name: hermes-vnc-cloak
+    restart: unless-stopped
+    ports:
+      - "5900:5900"
+      - "6080:6080"
+      - "9222:9222"
+    environment:
+      VNC_PASSWORD: ${VNC_PASSWORD:-}
+      CLOAK_PROFILE: ${CLOAK_PROFILE:-default}
+    volumes:
+      - ${HERMES_BROWSER_PROFILES:-~/.hermes/browser-profiles}:/profiles:rw
+    networks:
+      - hermes-net
+
 volumes:
   9router_data:
 
