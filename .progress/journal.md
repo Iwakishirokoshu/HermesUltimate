@@ -701,3 +701,10 @@ files: scripts/install-tailscale.sh, install.sh, .progress/
 acceptance: Git Bash bash -n scripts/install-tailscale.sh/install.sh + install-tailscale --help/dry-run + install.sh --help flag check -> PASS
 notes: Added Tailscale installer wrapper with --ssh default, optional auth key/hostname/tags/accept-routes, and install.sh --with-tailscale hook. Live tailscale status was not run because this host is not the target VPS and no auth key was provided.
 commit: be59793
+2026-06-14 00:33 | T-804 |
+title: scripts/backup-vault.sh
+type: create
+files: scripts/backup-vault.sh, .progress/
+acceptance: Git Bash bash -n/help + temp vault backup creation + --install-cron --dry-run -> PASS
+notes: Backup script creates /backups/vault-YYYY-MM-DD.tar.gz by default, prunes only vault-*.tar.gz older than retention, and can install a daily /etc/cron.d/hermes-vault-backup job. Acceptance used .pytest_cache backup paths instead of host /backups.
+commit: 123caf1
