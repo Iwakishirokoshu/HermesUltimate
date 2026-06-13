@@ -1,0 +1,11 @@
+name: default
+backend: hermes
+soul_md: souls/default/SOUL.md
+allowed_toolsets:
+  - all
+vault_load:
+  include:
+    - INDEX.md
+    - Wiki/Hot/general/**
+    - Wiki/Hot/personal/**
+  budget_kb: 5
