@@ -48,6 +48,7 @@ _HERMES_CORE_TOOLS = [
     "text_to_speech",
     # Planning & memory
     "todo", "memory",
+    "vault.search", "vault.read", "vault.list", "vault.related", "vault.append",
     # Session history search
     "session_search",
     # Clarifying questions
@@ -216,6 +217,12 @@ TOOLSETS = {
         "includes": []
     },
 
+
+    "vault": {
+        "description": "Shared HermesVault tools: search, read, list, related pages, and atomic append",
+        "tools": ["vault.search", "vault.read", "vault.list", "vault.related", "vault.append"],
+        "includes": []
+    },
     "context_engine": {
         "description": "Runtime tools exposed by the active context engine",
         "tools": [],
@@ -357,6 +364,7 @@ TOOLSETS = {
             "browser_press", "browser_get_images",
             "browser_vision", "browser_console", "browser_cdp", "browser_dialog",
             "todo", "memory",
+            "vault.search", "vault.read", "vault.list", "vault.related", "vault.append",
             "session_search",
             "execute_code", "delegate_task",
         ],
@@ -383,6 +391,7 @@ TOOLSETS = {
             "browser_vision", "browser_console", "browser_cdp", "browser_dialog",
             # Planning & memory
             "todo", "memory",
+            "vault.search", "vault.read", "vault.list", "vault.related", "vault.append",
             # Session history search
             "session_search",
             # Code execution + delegation

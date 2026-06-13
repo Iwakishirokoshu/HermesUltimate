@@ -67,6 +67,7 @@ CONFIGURABLE_TOOLSETS = [
     ("tts",             "🔊 Text-to-Speech",            "text_to_speech"),
     ("skills",          "📚 Skills",                    "list, view, manage"),
     ("todo",            "📋 Task Planning",             "todo"),
+    ("vault",           "Vault",                     "vault.search, vault.read, vault.append"),
     ("memory",          "💾 Memory",                    "persistent memory across sessions"),
     ("context_engine",  "🧩 Context Engine",            "runtime tools from the active context engine"),
     ("session_search",  "🔎 Session Search",            "search past conversations"),
@@ -3772,6 +3773,18 @@ def _print_tools_list(enabled_toolsets: set, mcp_servers: dict, platform: str = 
                       else color("✗ disabled", Colors.RED))
             print(f"  {status}  {ts_key}  {color(label, Colors.DIM)}")
 
+    # Vault tool functions are printed as raw names so smoke checks can grep
+    # for `vault.*` without depending on colored toolset summary formatting.
+    try:
+        from toolsets import resolve_toolset as _resolve_toolset
+        vault_tools = [name for name in _resolve_toolset("vault") if name.startswith("vault.")]
+        if vault_tools:
+            print()
+            print("Vault tool functions:")
+            for tool_name in vault_tools:
+                print(tool_name)
+    except Exception:
+        pass
     if mcp_servers:
         print()
         print("MCP servers:")
