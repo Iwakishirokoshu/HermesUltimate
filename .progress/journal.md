@@ -645,3 +645,10 @@ files: scripts/gen-env.sh, .progress/
 acceptance: docker run python:3.13-slim bash scripts/gen-env.sh with temp HOME/stack -> PASS
 notes: Generated ~/.hermes/stack.env from stack/.env.template with nonempty NINEROUTER/Neo4j/VNC secrets, chmod 600, and stack/.env symlink. Git Bash/NTFS reports chmod as 644, so chmod acceptance was verified in a Linux container.
 commit: dee89a2
+2026-06-13 23:40 | T-702 |
+title: scripts/post-install-wizard.sh
+type: create
+files: scripts/post-install-wizard.sh, .progress/
+acceptance: Git Bash bash -n/help + offline render of gateway.yaml/config.toml -> PASS
+notes: Wizard supports whiptail/dialog/stdin, Telegram getMe validation, getUpdates/manual allowed_users, gateway.yaml rendering from template, default soul copy, config.toml rendering, 9router prompt, and hermes setup --portal. Live Telegram validation was not executed because no token/chat was provided.
+commit: 30f3432
