@@ -83,6 +83,7 @@ import ChannelsPage from "@/pages/ChannelsPage";
 import WebhooksPage from "@/pages/WebhooksPage";
 import SystemPage from "@/pages/SystemPage";
 import SoulsPage from "@/pages/SoulsPage";
+import DecepticonPage from "@/pages/DecepticonPage";
 import ChatPage from "@/pages/ChatPage";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { ThemeSwitcher } from "@/components/ThemeSwitcher";
@@ -114,10 +115,6 @@ function DashboardPlaceholderPage({ title }: { title: string }) {
       </p>
     </div>
   );
-}
-
-function DecepticonRoute() {
-  return <DashboardPlaceholderPage title="Decepticon" />;
 }
 
 function VaultRoute() {
@@ -163,7 +160,7 @@ const CHAT_NAV_ITEM: NavItem = {
 const BUILTIN_ROUTES_CORE: Record<string, ComponentType> = {
   "/": RootRedirect,
   "/souls": SoulsPage,
-  "/decepticon": DecepticonRoute,
+  "/decepticon": DecepticonPage,
   "/vault": VaultRoute,
   "/router": RouterRoute,
   "/browser": BrowserRoute,
