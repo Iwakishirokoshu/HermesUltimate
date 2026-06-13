@@ -88,6 +88,7 @@ import DecepticonPage from "@/pages/DecepticonPage";
 import VaultBrowserPage from "@/pages/VaultBrowserPage";
 import RouterPage from "@/pages/RouterPage";
 import BrowserPage from "@/pages/BrowserPage";
+import BotsPage from "@/pages/BotsPage";
 import ChatPage from "@/pages/ChatPage";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { ThemeSwitcher } from "@/components/ThemeSwitcher";
@@ -102,27 +103,6 @@ import type { StatusResponse } from "@/lib/api";
 
 function RootRedirect() {
   return <Navigate to="/sessions" replace />;
-}
-
-function DashboardPlaceholderPage({ title }: { title: string }) {
-  return (
-    <div className="mx-auto flex min-h-[50vh] max-w-5xl flex-col justify-center gap-3 px-2 py-10">
-      <p className="font-mondwest text-display text-xs uppercase tracking-[0.14em] text-text-tertiary">
-        Hermes Ultimate
-      </p>
-      <h1 className="font-mondwest text-display text-3xl uppercase tracking-[0.08em] text-midground">
-        {title}
-      </h1>
-      <p className="max-w-2xl text-sm leading-6 text-text-secondary">
-        This dashboard surface is registered and will be replaced by its full
-        implementation as the phase 4 page tasks land.
-      </p>
-    </div>
-  );
-}
-
-function BotsRoute() {
-  return <DashboardPlaceholderPage title="Bots" />;
 }
 
 function UnknownRouteFallback({ pluginsLoading }: { pluginsLoading: boolean }) {
@@ -156,7 +136,7 @@ const BUILTIN_ROUTES_CORE: Record<string, ComponentType> = {
   "/vault": VaultBrowserPage,
   "/router": RouterPage,
   "/browser": BrowserPage,
-  "/bots": BotsRoute,
+  "/bots": BotsPage,
   "/sessions": SessionsPage,
   "/analytics": AnalyticsPage,
   "/models": ModelsPage,
