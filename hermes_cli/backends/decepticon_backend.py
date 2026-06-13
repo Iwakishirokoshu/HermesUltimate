@@ -5,6 +5,7 @@ import inspect
 import json
 import logging
 import os
+import re
 from collections.abc import AsyncIterator, Callable
 from typing import Any
 
@@ -16,6 +17,84 @@ logger = logging.getLogger(__name__)
 
 _DONE = object()
 _APPROVE_CHOICES = {"once", "session", "always", "approve", "approved", "yes", "true"}
+_OPS_KIND_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
+
+
+async def start_ops(
+    kind: str,
+    *,
+    base_url: str | None = None,
+    timeout: float = 30.0,
+    client_factory: Callable[[], Any] | None = None,
+) -> dict[str, Any]:
+    """Ask the Decepticon LangGraph backend to start an ops workload."""
+
+    ops_kind = str(kind or "").strip()
+    if not ops_kind or not _OPS_KIND_RE.fullmatch(ops_kind):
+        raise ValueError("Invalid ops kind")
+
+    target = (
+        base_url
+        or os.getenv("DECEPTICON_LANGGRAPH_URL")
+        or "http://localhost:2024"
+    ).rstrip("/")
+    payload = {
+        "input": {
+            "messages": [
+                {
+                    "role": "user",
+                    "content": f"Start Decepticon ops workload: {ops_kind}",
+                }
+            ],
+            "ops_kind": ops_kind,
+        },
+        "metadata": {
+            "source": "hermes-dashboard",
+            "ops_kind": ops_kind,
+        },
+    }
+
+    client = client_factory() if client_factory is not None else httpx.AsyncClient(timeout=timeout)
+    try:
+        response = await client.post(f"{target}/runs", json=payload)
+        response.raise_for_status()
+        try:
+            data = response.json()
+        except ValueError:
+            data = {"raw": response.text}
+        if not isinstance(data, dict):
+            data = {"data": data}
+
+        run_id = data.get("run_id") or data.get("id") or data.get("runId")
+        return {
+            "ok": True,
+            "kind": ops_kind,
+            "status": str(data.get("status") or "submitted"),
+            "run_id": str(run_id) if run_id else None,
+            "message": f"{ops_kind} ops submitted to LangGraph",
+            "response": data,
+        }
+    except httpx.HTTPStatusError as exc:
+        body = exc.response.text[:1000]
+        return {
+            "ok": False,
+            "kind": ops_kind,
+            "status": "error",
+            "message": f"LangGraph returned HTTP {exc.response.status_code}: {body}",
+        }
+    except httpx.RequestError as exc:
+        return {
+            "ok": False,
+            "kind": ops_kind,
+            "status": "unavailable",
+            "message": f"LangGraph unavailable at {target}: {exc}",
+        }
+    finally:
+        close = getattr(client, "aclose", None)
+        if callable(close):
+            maybe_awaitable = close()
+            if inspect.isawaitable(maybe_awaitable):
+                await maybe_awaitable
 
 
 class DecepticonBackend(AgentBackend):
