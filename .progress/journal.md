@@ -652,3 +652,10 @@ files: scripts/post-install-wizard.sh, .progress/
 acceptance: Git Bash bash -n/help + offline render of gateway.yaml/config.toml -> PASS
 notes: Wizard supports whiptail/dialog/stdin, Telegram getMe validation, getUpdates/manual allowed_users, gateway.yaml rendering from template, default soul copy, config.toml rendering, 9router prompt, and hermes setup --portal. Live Telegram validation was not executed because no token/chat was provided.
 commit: 30f3432
+2026-06-13 23:44 | T-703 |
+title: install.ps1
+type: create
+files: install.ps1, .progress/
+acceptance: powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -Help; scriptblock parse -> PASS
+notes: Windows mirror installs dependencies via winget/uv, supports the same installer flags, uses Git Bash for bash helper scripts, starts compose/dashboard, waits on service URLs, and skips wizard when -NonInteractive is set. Full clean-Windows install was not run to avoid host dependency changes.
+commit: 4ce5894
