@@ -12,10 +12,20 @@ services:
       - 0.0.0.0
       - --port
       - "2024"
+      - --no-browser
+      - --n-jobs-per-worker
+      - "10"
+      - --allow-blocking
+      - --no-reload
     ports:
       - "2024:2024"
     environment:
       DECEPTICON_LLM__PROXY_URL: http://9router:20128/v1
+      SAAS_SANDBOX_URL: http://sandbox:9999
+      DECEPTICON_NEO4J_URI: bolt://neo4j:7687
+      DECEPTICON_NEO4J_USER: neo4j
+      DECEPTICON_NEO4J_PASSWORD: ${NEO4J_PASSWORD:-decepticon}
+      DECEPTICON_USE_SKILLOGY: "0"
     depends_on:
       - 9router
       - neo4j

@@ -137,6 +137,11 @@ app = FastAPI(
 )
 
 
+@app.get("/health")
+async def health() -> dict[str, bool]:
+    return {"ok": True}
+
+
 @app.get("/_decepticon/bundles", response_model=BundlesResponse)
 async def list_bundles() -> BundlesResponse:
     """List every known bundle plus its current enabled state.
