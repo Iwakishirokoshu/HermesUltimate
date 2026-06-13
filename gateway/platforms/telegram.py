@@ -405,6 +405,9 @@ class TelegramAdapter(BasePlatformAdapter):
         super().__init__(config, Platform.TELEGRAM)
         self._app: Optional[Application] = None
         self._bot: Optional[Bot] = None
+        self._apps: Dict[str, Application] = {}
+        self._bots: Dict[str, Bot] = {}
+        self._bot_adapters: Dict[str, "TelegramAdapter"] = {}
         self._webhook_mode: bool = False
         self._mention_patterns = self._compile_mention_patterns()
         self._reply_to_mode: str = getattr(config, 'reply_to_mode', 'first') or 'first'
@@ -1486,6 +1489,220 @@ class TelegramAdapter(BasePlatformAdapter):
                             self.name, topic_name, seed_err,
                         )
 
+    @staticmethod
+    def _gateway_bool(value: Any, default: bool = True) -> bool:
+        if value is None:
+            return default
+        if isinstance(value, str):
+            lowered = value.strip().lower()
+            if lowered in {"true", "1", "yes", "on"}:
+                return True
+            if lowered in {"false", "0", "no", "off"}:
+                return False
+            return default
+        return bool(value)
+
+    @staticmethod
+    def _gateway_str_list(value: Any) -> List[str]:
+        if value is None:
+            return []
+        if isinstance(value, (list, tuple, set)):
+            values = value
+        else:
+            values = str(value).split(",")
+        return [str(part).strip() for part in values if str(part).strip()]
+
+    def _load_gateway_telegram_configs(self) -> List[PlatformConfig]:
+        """Read ~/.hermes/gateway.yaml telegrams: entries for multi-bot mode."""
+        if self.config.extra.get("_single_bot_from_gateway"):
+            return []
+
+        try:
+            from hermes_cli.config import get_hermes_home
+            import yaml
+        except Exception as exc:
+            logger.warning("[%s] Cannot load gateway.yaml dependencies: %s", self.name, exc)
+            return []
+
+        path = get_hermes_home() / "gateway.yaml"
+        if not path.exists():
+            return []
+
+        try:
+            data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        except Exception as exc:
+            logger.warning("[%s] Cannot read gateway.yaml: %s", self.name, exc)
+            return []
+        if not isinstance(data, dict):
+            logger.warning("[%s] Ignoring gateway.yaml: expected mapping", self.name)
+            return []
+
+        telegrams = data.get("telegrams")
+        if telegrams is None:
+            return []
+        if not isinstance(telegrams, list):
+            logger.warning("[%s] Ignoring gateway.yaml telegrams: expected list", self.name)
+            return []
+
+        configs: List[PlatformConfig] = []
+        seen_tokens: Set[str] = set()
+        for index, raw_entry in enumerate(telegrams, start=1):
+            if not isinstance(raw_entry, dict):
+                logger.warning("[%s] Skipping telegrams[%d]: expected mapping", self.name, index - 1)
+                continue
+            if not self._gateway_bool(raw_entry.get("enabled"), True):
+                continue
+            token = str(raw_entry.get("token") or "").strip()
+            if not token:
+                logger.warning("[%s] Skipping telegrams[%d]: token is empty", self.name, index - 1)
+                continue
+            if token in seen_tokens:
+                logger.warning("[%s] Skipping duplicate telegram token at telegrams[%d]", self.name, index - 1)
+                continue
+            seen_tokens.add(token)
+
+            extra = dict(self.config.extra or {})
+            raw_extra = raw_entry.get("extra")
+            if isinstance(raw_extra, dict):
+                extra.update(raw_extra)
+
+            bot_id = str(
+                raw_entry.get("id")
+                or raw_entry.get("username")
+                or raw_entry.get("name")
+                or f"telegram-{index}"
+            ).strip()
+            default_soul = str(raw_entry.get("default_soul") or extra.get("default_soul") or "default").strip()
+            allowed_users = self._gateway_str_list(raw_entry.get("allowed_users"))
+
+            extra["_single_bot_from_gateway"] = True
+            extra["gateway_bot_id"] = bot_id or f"telegram-{index}"
+            extra["gateway_bot_index"] = index - 1
+            extra["default_soul"] = default_soul or "default"
+            if allowed_users:
+                extra["allowed_users"] = allowed_users
+                extra["allow_from"] = ",".join(allowed_users)
+
+            configs.append(
+                dataclasses.replace(
+                    self.config,
+                    enabled=True,
+                    token=token,
+                    extra=extra,
+                )
+            )
+
+        return configs
+
+    def _apply_gateway_bot_config(self, config: PlatformConfig) -> None:
+        """Apply a gateway.yaml bot config to this already-created adapter."""
+        self.config = config
+        self._mention_patterns = self._compile_mention_patterns()
+        self._reply_to_mode = getattr(config, "reply_to_mode", "first") or "first"
+        self._disable_link_previews = self._coerce_bool_extra("disable_link_previews", False)
+        self._dm_topics_config = self.config.extra.get("dm_topics", [])
+        self._dm_topic_chat_ids = {
+            str(e["chat_id"]) for e in self._dm_topics_config if "chat_id" in e
+        }
+        self._max_doc_bytes = (
+            2 * 1024 * 1024 * 1024
+            if self.config.extra.get("base_url")
+            else 20 * 1024 * 1024
+        )
+
+    def _inherit_parent_runtime_hooks(self, child: "TelegramAdapter") -> None:
+        child.set_message_handler(self._message_handler)
+        child.set_fatal_error_handler(self._fatal_error_handler)
+        child.set_session_store(getattr(self, "_session_store", None))
+        child.set_busy_session_handler(self._busy_session_handler)
+        child.set_topic_recovery_fn(getattr(self, "_topic_recovery_fn", None))
+        child._busy_text_mode = getattr(self, "_busy_text_mode", child._busy_text_mode)
+        child._auto_tts_default = getattr(self, "_auto_tts_default", False)
+        child._auto_tts_enabled_chats = set(getattr(self, "_auto_tts_enabled_chats", set()))
+        child._auto_tts_disabled_chats = set(getattr(self, "_auto_tts_disabled_chats", set()))
+
+    async def _connect_gateway_bot_configs(self, bot_configs: List[PlatformConfig]) -> bool:
+        """Start one PTB Application per configured Telegram bot."""
+        adapters: Dict[str, TelegramAdapter] = {}
+        for bot_config in bot_configs:
+            child = TelegramAdapter(bot_config)
+            self._inherit_parent_runtime_hooks(child)
+            adapters[str(bot_config.token)] = child
+
+        results = await asyncio.gather(
+            *(adapter.connect() for adapter in adapters.values()),
+            return_exceptions=True,
+        )
+        failures = [
+            (adapter, result)
+            for adapter, result in zip(adapters.values(), results)
+            if result is not True
+        ]
+        if failures:
+            for adapter in adapters.values():
+                await adapter.disconnect()
+            first_adapter, first_failure = failures[0]
+            message = (
+                f"Telegram multi-bot startup failed for "
+                f"{first_adapter.config.extra.get('gateway_bot_id', 'telegram')}: {first_failure}"
+            )
+            self._set_fatal_error("telegram_connect_error", message, retryable=True)
+            logger.error("[%s] %s", self.name, message)
+            return False
+
+        self._bot_adapters = adapters
+        self._apps = {
+            token: adapter._app
+            for token, adapter in adapters.items()
+            if adapter._app is not None
+        }
+        self._bots = {
+            token: adapter._bot
+            for token, adapter in adapters.items()
+            if adapter._bot is not None
+        }
+        first_adapter = next(iter(adapters.values()))
+        self._app = first_adapter._app
+        self._bot = first_adapter._bot
+        self._webhook_mode = any(adapter._webhook_mode for adapter in adapters.values())
+        self._mark_connected()
+        logger.info("[%s] Connected %d Telegram bots from gateway.yaml", self.name, len(adapters))
+        return True
+
+    def _telegram_allowed_users(self) -> Set[str]:
+        raw = self.config.extra.get("allowed_users")
+        if raw is None:
+            raw = self.config.extra.get("allow_from")
+        return set(self._gateway_str_list(raw))
+
+    def _telegram_user_allowed(self, message: Message) -> bool:
+        allowed = self._telegram_allowed_users()
+        if not allowed or "*" in allowed:
+            return True
+        user = getattr(message, "from_user", None)
+        user_id = getattr(user, "id", None)
+        return user_id is not None and str(user_id) in allowed
+
+    async def _apply_default_soul(self, event: MessageEvent) -> None:
+        default_soul = str(self.config.extra.get("default_soul") or "default").strip()
+        if not default_soul or default_soul == "default":
+            return
+        chat_id = getattr(getattr(event, "source", None), "chat_id", None)
+        if not chat_id:
+            return
+        try:
+            from hermes_cli.soul_router import SoulRouter
+            router = SoulRouter()
+            active = router.get_active_soul(chat_id)
+            if active.name == "default":
+                router.set_active_soul(chat_id, default_soul)
+        except Exception as exc:
+            logger.warning("[%s] Could not apply default_soul=%s: %s", self.name, default_soul, exc)
+
+    async def _dispatch_message_event(self, event: MessageEvent) -> None:
+        await self._apply_default_soul(event)
+        await self.handle_message(event)
+
     async def connect(self) -> bool:
         """Connect to Telegram via polling or webhook.
 
@@ -1506,7 +1723,14 @@ class TelegramAdapter(BasePlatformAdapter):
                 self.name,
             )
             return False
-        
+
+        gateway_bot_configs = self._load_gateway_telegram_configs()
+        if gateway_bot_configs:
+            if len(gateway_bot_configs) == 1:
+                self._apply_gateway_bot_config(gateway_bot_configs[0])
+            else:
+                return await self._connect_gateway_bot_configs(gateway_bot_configs)
+
         if not self.config.token:
             logger.error("[%s] No bot token configured", self.name)
             return False
@@ -1796,6 +2020,32 @@ class TelegramAdapter(BasePlatformAdapter):
             await asyncio.gather(*pending_media_group_tasks, return_exceptions=True)
         self._media_group_tasks.clear()
         self._media_group_events.clear()
+
+        child_adapters = list(getattr(self, "_bot_adapters", {}).values())
+        if child_adapters:
+            results = await asyncio.gather(
+                *(adapter.disconnect() for adapter in child_adapters),
+                return_exceptions=True,
+            )
+            for result in results:
+                if isinstance(result, Exception):
+                    logger.warning("[%s] Error during Telegram child disconnect: %s", self.name, result)
+            self._bot_adapters.clear()
+            self._apps.clear()
+            self._bots.clear()
+            self._release_platform_lock()
+
+            for task in self._pending_photo_batch_tasks.values():
+                if task and not task.done():
+                    task.cancel()
+            self._pending_photo_batch_tasks.clear()
+            self._pending_photo_batches.clear()
+
+            self._mark_disconnected()
+            self._app = None
+            self._bot = None
+            logger.info("[%s] Disconnected from Telegram", self.name)
+            return
 
         if self._app:
             try:
@@ -5089,6 +5339,9 @@ class TelegramAdapter(BasePlatformAdapter):
         mentioning the bot (``@botname /command``), both of which are
         recognised as mentions by :meth:`_message_mentions_bot`.
         """
+        if not self._telegram_user_allowed(message):
+            return False
+
         if not self._is_group_chat(message):
             return True
 
@@ -5213,7 +5466,7 @@ class TelegramAdapter(BasePlatformAdapter):
         event = self._build_message_event(msg, MessageType.COMMAND, update_id=update.update_id)
         event.text = self._clean_bot_trigger_text(event.text)
         event = self._apply_telegram_group_observe_attribution(event)
-        await self.handle_message(event)
+        await self._dispatch_message_event(event)
 
     async def _handle_location_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle incoming location/venue pin messages."""
@@ -5253,7 +5506,7 @@ class TelegramAdapter(BasePlatformAdapter):
         event = self._build_message_event(msg, MessageType.LOCATION, update_id=update.update_id)
         event.text = "\n".join(parts)
         event = self._apply_telegram_group_observe_attribution(event)
-        await self.handle_message(event)
+        await self._dispatch_message_event(event)
 
     # ------------------------------------------------------------------
     # Text message aggregation (handles Telegram client-side splits)
@@ -5345,7 +5598,7 @@ class TelegramAdapter(BasePlatformAdapter):
                 "[Telegram] Flushing text batch %s (%d chars)",
                 key, len(event.text or ""),
             )
-            await self.handle_message(event)
+            await self._dispatch_message_event(event)
         finally:
             if self._pending_text_batch_tasks.get(key) is current_task:
                 self._pending_text_batch_tasks.pop(key, None)
@@ -5376,7 +5629,7 @@ class TelegramAdapter(BasePlatformAdapter):
             if not event:
                 return
             logger.info("[Telegram] Flushing photo batch %s with %d image(s)", batch_key, len(event.media_urls))
-            await self.handle_message(event)
+            await self._dispatch_message_event(event)
         finally:
             if self._pending_photo_batch_tasks.get(batch_key) is current_task:
                 self._pending_photo_batch_tasks.pop(batch_key, None)
@@ -5429,7 +5682,7 @@ class TelegramAdapter(BasePlatformAdapter):
         if msg.sticker:
             await self._handle_sticker(msg, event)
             event = self._apply_telegram_group_observe_attribution(event)
-            await self.handle_message(event)
+            await self._dispatch_message_event(event)
             return
 
         # Apply observe attribution after caption is set; sticker is handled above
@@ -5538,7 +5791,7 @@ class TelegramAdapter(BasePlatformAdapter):
                         f"Maximum: {limit_mb} MB."
                     )
                     logger.info("[Telegram] Document too large: %s bytes", doc.file_size)
-                    await self.handle_message(event)
+                    await self._dispatch_message_event(event)
                     return
 
                 # Telegram may deliver screenshots/photos as documents. If the
@@ -5556,7 +5809,7 @@ class TelegramAdapter(BasePlatformAdapter):
                             f"Image document '{original_filename or doc_mime or ext or 'unknown'}' "
                             "could not be read as an image."
                         )
-                        await self.handle_message(event)
+                        await self._dispatch_message_event(event)
                         return
 
                     event.message_type = MessageType.PHOTO
@@ -5592,7 +5845,7 @@ class TelegramAdapter(BasePlatformAdapter):
                     event.media_types = [SUPPORTED_VIDEO_TYPES[ext]]
                     event.message_type = MessageType.VIDEO
                     logger.info("[Telegram] Cached user video document at %s", cached_path)
-                    await self.handle_message(event)
+                    await self._dispatch_message_event(event)
                     return
 
                 # NOTE: image-document handling is performed earlier in this
@@ -5609,7 +5862,7 @@ class TelegramAdapter(BasePlatformAdapter):
                         f"Supported types: {supported_list}"
                     )
                     logger.info("[Telegram] Unsupported document type: %s", ext or "unknown")
-                    await self.handle_message(event)
+                    await self._dispatch_message_event(event)
                     return
 
                 # Download and cache
@@ -5648,7 +5901,7 @@ class TelegramAdapter(BasePlatformAdapter):
             await self._queue_media_group_event(str(media_group_id), event)
             return
 
-        await self.handle_message(event)
+        await self._dispatch_message_event(event)
 
     async def _queue_media_group_event(self, media_group_id: str, event: MessageEvent) -> None:
         """Buffer Telegram media-group items so albums arrive as one logical event.
@@ -5680,7 +5933,7 @@ class TelegramAdapter(BasePlatformAdapter):
             await asyncio.sleep(self.MEDIA_GROUP_WAIT_SECONDS)
             event = self._media_group_events.pop(media_group_id, None)
             if event is not None:
-                await self.handle_message(event)
+                await self._dispatch_message_event(event)
         except asyncio.CancelledError:
             return
         finally:
