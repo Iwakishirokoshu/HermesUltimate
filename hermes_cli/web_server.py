@@ -128,6 +128,10 @@ def _get_event_state(app: "FastAPI"):
 
 app = FastAPI(title="Hermes Agent", version=__version__, lifespan=_lifespan)
 
+from hermes_cli.web_api.reach import router as _reach_router
+
+app.include_router(_reach_router)
+
 # ---------------------------------------------------------------------------
 # Session token for protecting sensitive endpoints (reveal).
 # The desktop shell mints the token and injects it via
