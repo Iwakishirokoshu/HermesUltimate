@@ -1,0 +1,283 @@
+# Phase 8 Completion
+
+completed: 2026-06-14 00:36
+status: BLOCKED (live VPS gate not runnable in this local environment; local artifact checks PASS)
+
+## Tasks
+c7dad82 T-800: scripts/migrate-to-vps.sh <user@host>
+f0329a9 T-801: stack/caddy/Caddyfile
+4fde77a T-802: stack/docker-compose.vps.yml
+be59793 T-803: scripts/install-tailscale.sh
+123caf1 T-804: scripts/backup-vault.sh
+f6c1f58 T-805: docs/README-stack.md
+
+## Gate-check Phase 8
+
+```text
+===== exact VPS gate commands =====
+NOT RUN: Phase 8 gate requires a real Ubuntu 22.04 VPS, SSH target, public domain, DNS, Caddy/TLS, Tailscale auth/session, and Telegram webhook cutover.
+Required by plan:
+  bash scripts/migrate-to-vps.sh user@vps.example.com
+  docker compose ps
+  curl https://dashboard.<domain>
+  tailscale status
+  ls /backups/vault-*.tar.gz
+Local-equivalent artifact checks below were run instead.
+
+===== git remote -v =====
+<no output>
+
+===== bash -n phase 8 scripts =====
+<no output>
+
+===== migrate-to-vps dry-run =====
+[hermes-vps-migrate] target: user@vps.example.com
+[hermes-vps-migrate] install URL: https://example.invalid/hermes/install.sh
+[hermes-vps-migrate] creating remote directories
++ ssh user@vps.example.com mkdir\ -p\ ~/.hermes\ ~/.hermes/browser-profiles\ ~/HermesVault
+[hermes-vps-migrate] syncing /c/Users/Around/.hermes -> user@vps.example.com:~/.hermes
++ rsync -az --info=progress2 --exclude browser-profiles/ /c/Users/Around/.hermes/ user@vps.example.com:\~/.hermes/
+[hermes-vps-migrate] syncing /c/Users/Around/.hermes/browser-profiles -> user@vps.example.com:~/.hermes/browser-profiles
++ rsync -az --info=progress2 /c/Users/Around/.hermes/browser-profiles/ user@vps.example.com:\~/.hermes/browser-profiles/
+[hermes-vps-migrate] syncing /c/Users/Around/HermesVault -> user@vps.example.com:~/HermesVault
++ rsync -az --info=progress2 /c/Users/Around/HermesVault/ user@vps.example.com:\~/HermesVault/
+[hermes-vps-migrate] running remote installer
++ ssh user@vps.example.com curl\ -fsSL\ https://example.invalid/hermes/install.sh\ \|\ bash\ -s\ --\ --mode\ vps\ --profile\ slim\ --vault-path\ ~/HermesVault\ --branch\ main\ --repo-url\ https://github.com/example/hermes-ultimate.git\ --non-interactive
+[hermes-vps-migrate] setting main bot webhook -> https://vps.example.com/tg/123456
++ curl -fsS https://api.telegram.org/bot123456:ABC/setWebhook --data-urlencode url=https://vps.example.com/tg/123456 -d drop_pending_updates=true
+[hermes-vps-migrate] migration complete; verify bot replies from the VPS before stopping local gateway
+
+===== docker compose VPS overlay config =====
+name: stack
+services:
+  9router:
+    container_name: hermes-9router
+    environment:
+      NINEROUTER_API_KEY: ""
+      NINEROUTER_INITIAL_PASSWORD: ""
+      NINEROUTER_JWT_SECRET: ""
+      OPENAI_API_KEY: ""
+    image: decolua/9router:latest
+    networks:
+      hermes-net: null
+    ports:
+      - mode: ingress
+        target: 20128
+        published: "20128"
+        protocol: tcp
+    restart: unless-stopped
+    volumes:
+      - type: volume
+        source: 9router_data
+        target: /data
+        volume: {}
+  caddy:
+    container_name: hermes-caddy
+    environment:
+      ACME_EMAIL: admin@example.com
+      CADDY_BASIC_AUTH_HASH: $$2a$$14$$H3zqLfy7jGu8e8i3sP77GO4D80NT5k33Z3dxh3j8QOBySmk2KZnAu
+      CADDY_BASIC_AUTH_USER: admin
+      CADDY_BIND: 0.0.0.0
+      HERMES_DOMAIN: example.com
+      TAILSCALE_ALLOWED_CIDRS: 100.64.0.0/10
+      TAILSCALE_ONLY: "0"
+    image: caddy:2
+    network_mode: host
+    restart: unless-stopped
+    volumes:
+      - type: bind
+        source: D:\Stack\hermes-agent-2026.6.5\stack\caddy\Caddyfile
+        target: /etc/caddy/Caddyfile
+        read_only: true
+        bind: {}
+      - type: volume
+        source: caddy_data
+        target: /data
+        volume: {}
+      - type: volume
+        source: caddy_config
+        target: /config
+        volume: {}
+  langgraph:
+    build:
+      context: D:\Stack\hermes-agent-2026.6.5\stack\decepticon-slim\upstream
+      dockerfile: containers/langgraph.Dockerfile
+    command:
+      - langgraph
+      - dev
+      - --host
+      - 0.0.0.0
+      - --port
+      - "2024"
+      - --no-browser
+      - --n-jobs-per-worker
+      - "10"
+      - --allow-blocking
+      - --no-reload
+    container_name: hermes-decepticon-langgraph
+    depends_on:
+      9router:
+        condition: service_started
+        required: true
+      neo4j:
+        condition: service_started
+        required: true
+    environment:
+      DECEPTICON_LLM__PROXY_URL: http://9router:20128/v1
+      DECEPTICON_NEO4J_PASSWORD: decepticon
+      DECEPTICON_NEO4J_URI: bolt://neo4j:7687
+      DECEPTICON_NEO4J_USER: neo4j
+      DECEPTICON_USE_SKILLOGY: "0"
+      SAAS_SANDBOX_URL: http://sandbox:9999
+    networks:
+      hermes-net: null
+    ports:
+      - mode: ingress
+        target: 2024
+        published: "2024"
+        protocol: tcp
+    restart: unless-stopped
+  neo4j:
+    container_name: hermes-decepticon-neo4j
+    environment:
+      NEO4J_AUTH: neo4j/decepticon
+      NEO4J_server_memory_heap_max__size: 128M
+    image: neo4j:5.20
+    networks:
+      hermes-net: null
+    ports:
+      - mode: ingress
+        target: 7474
+        published: "7474"
+        protocol: tcp
+      - mode: ingress
+        target: 7687
+        published: "7687"
+        protocol: tcp
+    restart: unless-stopped
+    volumes:
+      - type: volume
+        source: neo4j_data
+        target: /data
+        volume: {}
+  sandbox:
+    build:
+      context: D:\Stack\hermes-agent-2026.6.5\stack\decepticon-slim
+      dockerfile: Dockerfile.sandbox
+    container_name: hermes-decepticon-sandbox
+    image: hermes-decepticon-sandbox:slim
+    networks:
+      hermes-net: null
+    volumes:
+      - type: bind
+        source: C:\Users\Around\HermesVault\Engagements
+        target: /engagements
+        bind: {}
+  vault-api:
+    build:
+      context: D:\Stack\hermes-agent-2026.6.5\stack\vault-api
+      dockerfile: Dockerfile
+    container_name: hermes-vault-api
+    environment:
+      HERMES_VAULT_PATH: /vault
+    networks:
+      hermes-net: null
+    ports:
+      - mode: ingress
+        target: 8090
+        published: "8090"
+        protocol: tcp
+    restart: unless-stopped
+    volumes:
+      - type: bind
+        source: D:\Stack\hermes-agent-2026.6.5\HermesVault
+        target: /vault
+        bind: {}
+  vnc-cloak:
+    build:
+      context: D:\Stack\hermes-agent-2026.6.5\stack\vnc-cloak
+      dockerfile: Dockerfile
+    container_name: hermes-vnc-cloak
+    environment:
+      CLOAK_PROFILE: default
+      VNC_PASSWORD: ""
+    networks:
+      hermes-net: null
+    ports:
+      - mode: ingress
+        target: 5900
+        published: "5900"
+        protocol: tcp
+      - mode: ingress
+        target: 6080
+        published: "6080"
+        protocol: tcp
+      - mode: ingress
+        target: 9222
+        published: "9222"
+        protocol: tcp
+    restart: unless-stopped
+    volumes:
+      - type: bind
+        source: C:\Users\Around\.hermes\browser-profiles
+        target: /profiles
+        bind: {}
+networks:
+  hermes-net:
+    name: hermes-net
+    driver: bridge
+    external: true
+volumes:
+  9router_data:
+    name: stack_9router_data
+  caddy_config:
+    name: stack_caddy_config
+  caddy_data:
+    name: stack_caddy_data
+  neo4j_data:
+    name: stack_neo4j_data
+
+===== caddy validate =====
+{"level":"info","ts":1781386451.249562,"msg":"using config from file","file":"/etc/caddy/Caddyfile"}
+{"level":"info","ts":1781386451.250607,"msg":"adapted config to JSON","adapter":"caddyfile"}
+{"level":"info","ts":1781386451.2510219,"logger":"http.auto_https","msg":"server is listening only on the HTTPS port but has no TLS connection policies; adding one to enable TLS","server_name":"srv0","https_port":443}
+{"level":"info","ts":1781386451.251046,"logger":"http.auto_https","msg":"enabling automatic HTTP->HTTPS redirects","server_name":"srv0"}
+{"level":"info","ts":1781386451.251119,"logger":"tls.cache.maintenance","msg":"started background certificate maintenance","cache":"0x3062e6cbd880"}
+{"level":"info","ts":1781386451.254836,"logger":"tls.cache.maintenance","msg":"stopped background certificate maintenance","cache":"0x3062e6cbd880"}
+{"level":"info","ts":1781386451.2548711,"logger":"http","msg":"servers shutting down with eternal grace period"}
+Valid configuration
+
+===== install-tailscale dry-run =====
+[hermes-tailscale] installing tailscale
++ curl -fsSL https://tailscale.com/install.sh | sh
+[hermes-tailscale] running tailscale up --ssh --accept-routes --auth-key tskey-auth-example --hostname hermes-vps --advertise-tags tag:hermes
++ sudo tailscale up --ssh --accept-routes --auth-key tskey-auth-example --hostname hermes-vps --advertise-tags tag:hermes
+[hermes-tailscale] tailscale setup complete
+
+===== backup-vault smoke =====
+[hermes-vault-backup] created .pytest_cache/phase8-gate-1943412545/backups/vault-2026-06-14.tar.gz
+
+===== docs VPS deployment section =====
+D:\Stack\hermes-agent-2026.6.5\docs\README-stack.md:6:## VPS deployment
+D:\Stack\hermes-agent-2026.6.5\docs\README-stack.md:23:scripts/migrate-to-vps.sh user@vps.example.com \
+D:\Stack\hermes-agent-2026.6.5\docs\README-stack.md:41:- `stack/docker-compose.vps.yml`
+D:\Stack\hermes-agent-2026.6.5\docs\README-stack.md:67:  -f stack/docker-compose.vps.yml \
+D:\Stack\hermes-agent-2026.6.5\docs\README-stack.md:77:`stack/docker-compose.vps.yml` uses host networking so Caddy can reach the
+D:\Stack\hermes-agent-2026.6.5\docs\README-stack.md:85:scripts/install-tailscale.sh
+D:\Stack\hermes-agent-2026.6.5\docs\README-stack.md:93:scripts/install-tailscale.sh --hostname hermes-vps --advertise-tags tag:hermes
+D:\Stack\hermes-agent-2026.6.5\docs\README-stack.md:111:scripts/backup-vault.sh
+D:\Stack\hermes-agent-2026.6.5\docs\README-stack.md:118:sudo scripts/backup-vault.sh --install-cron
+D:\Stack\hermes-agent-2026.6.5\docs\README-stack.md:130:  -f stack/docker-compose.vps.yml \
+
+
+PHASE 8 LOCAL ARTIFACT CHECKS: PASS
+PHASE 8 LIVE VPS GATE: BLOCKED (requires real VPS/domain/Tailscale/Telegram webhook cutover)
+```
+
+## Problems And Resolutions
+- The exact Phase 8 gate requires a real Ubuntu 22.04 VPS, SSH target, domain/DNS, Caddy TLS issuance, Tailscale status, and `/backups` on that VPS. None of those live production inputs are configured in this local checkout, so the live gate was not executed.
+- Local artifact checks passed: bash syntax, migration dry-run, Docker compose VPS overlay config, Caddyfile validation, Tailscale dry-run, backup smoke, and docs section check.
+- This repo still has no `origin` remote configured, so phase push could not be performed from this checkout.
+
+## Pushed
+Not pushed: no `origin` remote is configured. User indicated local build first, later manual GitHub upload.

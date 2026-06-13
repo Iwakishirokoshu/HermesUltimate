@@ -708,3 +708,10 @@ files: scripts/backup-vault.sh, .progress/
 acceptance: Git Bash bash -n/help + temp vault backup creation + --install-cron --dry-run -> PASS
 notes: Backup script creates /backups/vault-YYYY-MM-DD.tar.gz by default, prunes only vault-*.tar.gz older than retention, and can install a daily /etc/cron.d/hermes-vault-backup job. Acceptance used .pytest_cache backup paths instead of host /backups.
 commit: 123caf1
+2026-06-14 00:35 | T-805 |
+title: docs/README-stack.md
+type: create
+files: docs/README-stack.md, .progress/
+acceptance: Select-String docs/README-stack.md VPS deployment/scripts -> PASS
+notes: Added VPS deployment section with requirements, migrate-to-vps flow, Caddy/TLS env, Tailscale setup, vault backups, and verification commands.
+commit: f6c1f58
