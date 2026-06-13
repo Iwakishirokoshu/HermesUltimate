@@ -638,3 +638,10 @@ files: install.sh, .progress/
 acceptance: Git Bash: bash -n install.sh; bash install.sh --help -> PASS
 notes: Created root installer with required flags, OS preflight, dependency install flows, clone/pull, native uv install, vault/env/compose/dashboard startup, health waits, and summary. WSL default distro is docker-desktop only, so syntax/help were verified with Git Bash instead of WSL Ubuntu.
 commit: 7a6a225
+2026-06-13 23:35 | T-701 |
+title: scripts/gen-env.sh
+type: create
+files: scripts/gen-env.sh, .progress/
+acceptance: docker run python:3.13-slim bash scripts/gen-env.sh with temp HOME/stack -> PASS
+notes: Generated ~/.hermes/stack.env from stack/.env.template with nonempty NINEROUTER/Neo4j/VNC secrets, chmod 600, and stack/.env symlink. Git Bash/NTFS reports chmod as 644, so chmod acceptance was verified in a Linux container.
+commit: dee89a2
