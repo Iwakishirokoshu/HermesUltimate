@@ -735,6 +735,11 @@ def _probe_gateway_health() -> tuple[bool, dict | None]:
     return False, None
 
 
+@app.get("/api/health")
+async def get_health():
+    return {"ok": True}
+
+
 @app.get("/api/status")
 async def get_status():
     current_ver, latest_ver = check_config_version()

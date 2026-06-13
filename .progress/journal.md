@@ -666,3 +666,10 @@ files: README.md, .progress/
 acceptance: Select-String README.md install.sh one-liner -> PASS
 notes: Rewrote root README for Hermes Ultimate Agent with first-screen curl one-liner, Windows command, installer flags, post-install URLs, generated files, and development smoke commands.
 commit: 3b6d27f
+2026-06-13 23:49 | T-705 |
+title: scripts/smoke-tests/test_install_idempotent.sh
+type: create
+files: scripts/smoke-tests/test_install_idempotent.sh, .progress/
+acceptance: Git Bash bash -n + fake installer two-run harness -> PASS
+notes: Smoke script runs install.sh --mode local --non-interactive twice, stores logs, reports durations, and fails on nonzero install exits. Real double install was not run on this Windows host because WSL Ubuntu is absent and the script is intended for clean Linux/WSL gate.
+commit: 59e4711
