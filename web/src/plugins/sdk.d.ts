@@ -87,6 +87,12 @@ export interface PluginRegistry {
   registerSlot(slot: string, name: string, component: ComponentType): void;
 }
 
+export interface DashboardPageRegistryEntry {
+  readonly path: string;
+  readonly label: string;
+  readonly source: "builtin";
+}
+
 // ---------------------------------------------------------------------------
 // SDK surface (window.__HERMES_PLUGIN_SDK__)
 // ---------------------------------------------------------------------------
@@ -94,6 +100,8 @@ export interface PluginRegistry {
 export interface HermesPluginSDK {
   /** Contract version of this SDK surface (see SDK_CONTRACT_VERSION). */
   readonly sdkVersion: string;
+  /** Built-in dashboard pages registered for the host navigation. */
+  readonly dashboardPages: readonly DashboardPageRegistryEntry[];
 
   /** React core — use instead of importing/bundling react. */
   React: typeof import("react").default;

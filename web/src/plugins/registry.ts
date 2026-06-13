@@ -41,6 +41,22 @@ const _registered: Map<string, React.ComponentType> = new Map();
 const _loadErrors: Map<string, string> = new Map();
 const _listeners: Set<RegistryListener> = new Set();
 
+export interface DashboardPageRegistryEntry {
+  path: string;
+  label: string;
+  source: "builtin";
+}
+
+export const HERMES_ULTIMATE_DASHBOARD_PAGES: readonly DashboardPageRegistryEntry[] = [
+  { path: "/souls", label: "Souls", source: "builtin" },
+  { path: "/decepticon", label: "Decepticon", source: "builtin" },
+  { path: "/vault", label: "Vault", source: "builtin" },
+  { path: "/router", label: "Router", source: "builtin" },
+  { path: "/browser", label: "Browser", source: "builtin" },
+  { path: "/bots", label: "Bots", source: "builtin" },
+  { path: "/system", label: "System", source: "builtin" },
+];
+
 function _notify() {
   for (const fn of _listeners) {
     try { fn(); } catch { /* ignore */ }
@@ -111,6 +127,7 @@ export function exposePluginSDK() {
     // Contract version of the plugin SDK surface (see plugins/sdk.d.ts).
     // Bump on backwards-incompatible changes; additive changes don't need it.
     sdkVersion: SDK_CONTRACT_VERSION,
+    dashboardPages: HERMES_ULTIMATE_DASHBOARD_PAGES,
     // React core — plugins use these instead of importing react
     React,
     hooks: {
