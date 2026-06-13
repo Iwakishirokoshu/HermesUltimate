@@ -49,6 +49,8 @@ _HERMES_CORE_TOOLS = [
     # Planning & memory
     "todo", "memory",
     "vault.search", "vault.read", "vault.list", "vault.related", "vault.append",
+    "cloak.navigate", "cloak.click", "cloak.fill",
+    "cloak.screenshot", "cloak.cookies_export", "cloak.cookies_import",
     # Session history search
     "session_search",
     # Clarifying questions
@@ -223,6 +225,14 @@ TOOLSETS = {
         "tools": ["vault.search", "vault.read", "vault.list", "vault.related", "vault.append"],
         "includes": []
     },
+    "cloak": {
+        "description": "Persistent Chromium cloak browser tools over CDP",
+        "tools": [
+            "cloak.navigate", "cloak.click", "cloak.fill",
+            "cloak.screenshot", "cloak.cookies_export", "cloak.cookies_import",
+        ],
+        "includes": []
+    },
     "context_engine": {
         "description": "Runtime tools exposed by the active context engine",
         "tools": [],
@@ -365,6 +375,8 @@ TOOLSETS = {
             "browser_vision", "browser_console", "browser_cdp", "browser_dialog",
             "todo", "memory",
             "vault.search", "vault.read", "vault.list", "vault.related", "vault.append",
+            "cloak.navigate", "cloak.click", "cloak.fill",
+            "cloak.screenshot", "cloak.cookies_export", "cloak.cookies_import",
             "session_search",
             "execute_code", "delegate_task",
         ],
@@ -392,6 +404,8 @@ TOOLSETS = {
             # Planning & memory
             "todo", "memory",
             "vault.search", "vault.read", "vault.list", "vault.related", "vault.append",
+            "cloak.navigate", "cloak.click", "cloak.fill",
+            "cloak.screenshot", "cloak.cookies_export", "cloak.cookies_import",
             # Session history search
             "session_search",
             # Code execution + delegation
