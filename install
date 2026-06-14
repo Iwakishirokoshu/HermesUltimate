@@ -1,0 +1,445 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+IFS=$'\n\t'
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" >/dev/null 2>&1 && pwd -P || pwd)"
+INSTALL_SH="$SCRIPT_DIR/install.sh"
+DEFAULT_REPO_URL="https://github.com/Iwakishirokoshu/HermesUltimate.git"
+DEFAULT_BRANCH="main"
+
+DRY_RUN=0
+USE_DEFAULTS=0
+
+usage() {
+  cat <<'USAGE'
+Hermes Ultimate one-command installer
+
+Usage:
+  ./install                 Interactive full install wizard
+  ./install --defaults      Install with recommended defaults
+  ./install --dry-run       Show the install.sh command without running it
+  ./install -- <args...>    Pass arguments directly to install.sh
+
+Recommended server command:
+  curl -fsSL https://raw.githubusercontent.com/Iwakishirokoshu/HermesUltimate/main/install | bash -s -- --defaults
+
+The interactive wizard asks for:
+  - install mode: vps or local
+  - stack profile: slim, ultra-slim, or full
+  - install directory and vault path
+  - optional Tailscale SSH
+  - optional second Telegram bot template
+  - whether to run the post-install credential wizard
+
+Advanced users can still call install.sh directly with the old flags.
+USAGE
+}
+
+if [[ -t 1 ]]; then
+  BOLD="$(printf '\033[1m')"
+  DIM="$(printf '\033[2m')"
+  GREEN="$(printf '\033[32m')"
+  CYAN="$(printf '\033[36m')"
+  YELLOW="$(printf '\033[33m')"
+  RESET="$(printf '\033[0m')"
+else
+  BOLD=""
+  DIM=""
+  GREEN=""
+  CYAN=""
+  YELLOW=""
+  RESET=""
+fi
+
+log() {
+  printf '[hermes-install-one] %s\n' "$*" >&2
+}
+
+die() {
+  printf '[hermes-install-one] ERROR: %s\n' "$*" >&2
+  exit 1
+}
+
+quote_cmd() {
+  local item
+  for item in "$@"; do
+    printf '%q ' "$item"
+  done
+  printf '\n'
+}
+
+raw_install_url() {
+  local repo_url="$1"
+  local branch="$2"
+  local repo_path=""
+
+  case "$repo_url" in
+    https://github.com/*)
+      repo_path="${repo_url#https://github.com/}"
+      repo_path="${repo_path%.git}"
+      ;;
+    http://github.com/*)
+      repo_path="${repo_url#http://github.com/}"
+      repo_path="${repo_path%.git}"
+      ;;
+    git@github.com:*)
+      repo_path="${repo_url#git@github.com:}"
+      repo_path="${repo_path%.git}"
+      ;;
+    *)
+      printf '%s\n' "${HERMES_INSTALL_SH_URL:-}"
+      return
+      ;;
+  esac
+
+  printf 'https://raw.githubusercontent.com/%s/%s/install.sh\n' "$repo_path" "$branch"
+}
+
+ensure_install_sh() {
+  local repo_url="$1"
+  local branch="$2"
+
+  if [[ -f "$INSTALL_SH" ]]; then
+    return
+  fi
+
+  command -v curl >/dev/null 2>&1 || die "curl is required to download install.sh"
+
+  local url
+  url="$(raw_install_url "$repo_url" "$branch")"
+  [[ -n "$url" ]] || die "install.sh is not local and repo URL is not a GitHub URL; set HERMES_INSTALL_SH_URL"
+
+  local tmp_dir
+  tmp_dir="$(mktemp -d)"
+  INSTALL_SH="$tmp_dir/install.sh"
+  log "downloading install.sh from $url"
+  local token="${HERMES_GITHUB_TOKEN:-${GITHUB_TOKEN:-}}"
+  if [[ -n "$token" && "$url" == https://raw.githubusercontent.com/* ]]; then
+    curl -fsSL -H "Authorization: Bearer $token" "$url" -o "$INSTALL_SH"
+  else
+    curl -fsSL "$url" -o "$INSTALL_SH"
+  fi
+  chmod +x "$INSTALL_SH" || true
+}
+
+extract_passthrough_bootstrap_vars() {
+  local repo_url="${HERMES_REPO_URL:-$DEFAULT_REPO_URL}"
+  local branch="${HERMES_BRANCH:-$DEFAULT_BRANCH}"
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --repo-url)
+        [[ $# -ge 2 ]] || die "--repo-url requires a value"
+        repo_url="$2"
+        shift 2
+        ;;
+      --branch)
+        [[ $# -ge 2 ]] || die "--branch requires a value"
+        branch="$2"
+        shift 2
+        ;;
+      *)
+        shift
+        ;;
+    esac
+  done
+
+  printf '%s\n%s\n' "$repo_url" "$branch"
+}
+
+read_answer() {
+  local prompt="$1"
+  local default="${2:-}"
+  local answer=""
+
+  if [[ "$USE_DEFAULTS" -eq 1 ]]; then
+    printf '%s\n' "$default"
+    return
+  fi
+
+  if [[ -n "$default" ]]; then
+    printf '%s [%s]: ' "$prompt" "$default" > /dev/tty
+  else
+    printf '%s: ' "$prompt" > /dev/tty
+  fi
+
+  IFS= read -r answer < /dev/tty || true
+  if [[ -z "$answer" ]]; then
+    answer="$default"
+  fi
+  printf '%s\n' "$answer"
+}
+
+read_choice() {
+  local prompt="$1"
+  local default="$2"
+  shift 2
+  local allowed=("$@")
+  local answer
+  local item
+
+  while true; do
+    answer="$(read_answer "$prompt (${allowed[*]})" "$default")"
+    for item in "${allowed[@]}"; do
+      if [[ "$answer" == "$item" ]]; then
+        printf '%s\n' "$answer"
+        return
+      fi
+    done
+    printf 'Choose one of: %s\n' "${allowed[*]}" > /dev/tty
+  done
+}
+
+read_menu() {
+  local title="$1"
+  local default="$2"
+  shift 2
+  local rows=("$@")
+  local allowed=()
+  local labels=()
+  local descriptions=()
+  local i raw value label description answer
+
+  for raw in "${rows[@]}"; do
+    value="${raw%%|*}"
+    raw="${raw#*|}"
+    label="${raw%%|*}"
+    description="${raw#*|}"
+    allowed+=("$value")
+    labels+=("$label")
+    descriptions+=("$description")
+  done
+
+  if [[ "$USE_DEFAULTS" -eq 1 ]]; then
+    printf '%s\n' "$default"
+    return
+  fi
+
+  while true; do
+    printf '\n%s%s%s\n' "$BOLD" "$title" "$RESET" > /dev/tty
+    for i in "${!allowed[@]}"; do
+      local marker=""
+      if [[ "${allowed[$i]}" == "$default" ]]; then
+        marker=" ${GREEN}[recommended]${RESET}"
+      fi
+      printf '  %s) %s%-11s%s %s%s\n' \
+        "$((i + 1))" "$CYAN" "${labels[$i]}" "$RESET" "${descriptions[$i]}" "$marker" > /dev/tty
+    done
+    printf '%sPress Enter for %s, or type number/name: %s' "$DIM" "$default" "$RESET" > /dev/tty
+    IFS= read -r answer < /dev/tty || true
+    if [[ -z "$answer" ]]; then
+      printf '%s\n' "$default"
+      return
+    fi
+    for i in "${!allowed[@]}"; do
+      if [[ "$answer" == "$((i + 1))" || "$answer" == "${allowed[$i]}" || "$answer" == "${labels[$i]}" ]]; then
+        printf '%s\n' "${allowed[$i]}"
+        return
+      fi
+    done
+    printf '%sChoose one of:%s %s\n' "$YELLOW" "$RESET" "${allowed[*]}" > /dev/tty
+  done
+}
+
+read_yesno() {
+  local prompt="$1"
+  local default="$2"
+  local answer
+
+  while true; do
+    answer="$(read_answer "$prompt (y/n)" "$default")"
+    case "${answer,,}" in
+      y|yes) return 0 ;;
+      n|no) return 1 ;;
+      *) printf 'Answer y or n.\n' > /dev/tty ;;
+    esac
+  done
+}
+
+print_intro() {
+  cat >&2 <<INTRO
+
+${BOLD}Hermes Ultimate installer${RESET}
+${DIM}==========================${RESET}
+
+This will install Hermes Ultimate and, unless you choose otherwise, start the
+Docker stack:
+
+  - Hermes dashboard on localhost:8080
+  - 9Router model gateway on localhost:20128
+  - Browser/Cloak view on localhost:6080
+  - Decepticon + Kali sandbox + Neo4j in the default slim profile
+
+For a fresh VPS, just press ${GREEN}Enter${RESET} on the recommended choices.
+Use ${GREEN}--defaults${RESET} next time if you want zero questions:
+
+  curl -fsSL https://raw.githubusercontent.com/Iwakishirokoshu/HermesUltimate/main/install | bash -s -- --defaults
+
+INTRO
+}
+
+print_summary() {
+  local mode="$1"
+  local profile="$2"
+  local install_dir="$3"
+  local vault_path="$4"
+  local repo_url="$5"
+  local branch="$6"
+  local with_tailscale="$7"
+  local with_second_bot="$8"
+  local non_interactive="$9"
+  local tailscale_label="no"
+  local second_bot_label="no"
+  if [[ "$with_tailscale" -eq 1 ]]; then
+    tailscale_label="yes"
+  fi
+  if [[ "$with_second_bot" -eq 1 ]]; then
+    second_bot_label="yes"
+  fi
+
+  cat >&2 <<SUMMARY
+
+${BOLD}Install summary${RESET}
+${DIM}---------------${RESET}
+  Mode:              $mode
+  Profile:           $profile
+  Install directory: $install_dir
+  Vault path:        $vault_path
+  Repository:        $repo_url
+  Branch:            $branch
+  Tailscale SSH:     $tailscale_label
+  Second bot:        $second_bot_label
+  Credential wizard: $([[ "$non_interactive" -eq 1 ]] && printf 'skip' || printf 'run')
+
+SUMMARY
+}
+
+parse_wrapper_args() {
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --help|-h)
+        usage
+        exit 0
+        ;;
+      --dry-run)
+        DRY_RUN=1
+        shift
+        ;;
+      --defaults|--yes|-y)
+        USE_DEFAULTS=1
+        shift
+        ;;
+      --)
+        shift
+        local boot
+        boot="$(extract_passthrough_bootstrap_vars "$@")"
+        ensure_install_sh "$(printf '%s\n' "$boot" | sed -n '1p')" "$(printf '%s\n' "$boot" | sed -n '2p')"
+        exec bash "$INSTALL_SH" "$@"
+        ;;
+      *)
+        local boot
+        boot="$(extract_passthrough_bootstrap_vars "$@")"
+        ensure_install_sh "$(printf '%s\n' "$boot" | sed -n '1p')" "$(printf '%s\n' "$boot" | sed -n '2p')"
+        exec bash "$INSTALL_SH" "$@"
+        ;;
+    esac
+  done
+}
+
+main() {
+  parse_wrapper_args "$@"
+
+  if [[ "$USE_DEFAULTS" -eq 0 && ! -r /dev/tty ]]; then
+    die "interactive install requires a TTY; rerun with --defaults or pass install.sh flags"
+  fi
+
+  print_intro
+
+  local mode profile install_dir vault_path repo_url branch vnc_password
+  local with_tailscale=0
+  local with_second_bot=0
+  local non_interactive=0
+  if [[ "$USE_DEFAULTS" -eq 1 ]]; then
+    non_interactive=1
+  fi
+
+  mode="$(read_menu "Install mode" "vps" \
+    "vps|vps|Server install to /opt/hermes-ultimate; services bind to 127.0.0.1" \
+    "local|local|Use the current checkout/workstation paths")"
+  profile="$(read_menu "Stack profile" "slim" \
+    "slim|slim|Core stack plus Decepticon, Kali sandbox, and Neo4j" \
+    "ultra-slim|ultra-slim|Core only: Hermes, 9Router, Vault, Browser/Cloak" \
+    "full|full|Currently aliases to slim; reserved for the larger future stack")"
+
+  if [[ "$mode" == "vps" ]]; then
+    install_dir="$(read_answer "Install directory" "${HERMES_INSTALL_DIR:-/opt/hermes-ultimate}")"
+  else
+    install_dir="$(read_answer "Install directory" "${HERMES_INSTALL_DIR:-$SCRIPT_DIR}")"
+  fi
+
+  vault_path="$(read_answer "HermesVault path" "${HERMES_VAULT_PATH:-$HOME/HermesVault}")"
+  repo_url="$(read_answer "Git repo URL" "${HERMES_REPO_URL:-$DEFAULT_REPO_URL}")"
+  branch="$(read_answer "Git branch" "${HERMES_BRANCH:-$DEFAULT_BRANCH}")"
+  vnc_password="$(read_answer "VNC password (blank = generate)" "${VNC_PASSWORD:-}")"
+
+  if [[ "$USE_DEFAULTS" -eq 0 ]]; then
+    cat >&2 <<OPTIONAL
+
+${BOLD}Optional features${RESET}
+${DIM}-----------------${RESET}
+  Tailscale SSH: private remote access if you use Tailscale.
+  Second bot:    creates the extra Telegram red-soul bot config.
+
+OPTIONAL
+  fi
+
+  if read_yesno "Install and enable Tailscale SSH" "n"; then
+    with_tailscale=1
+  fi
+  if read_yesno "Enable second Telegram bot template" "n"; then
+    with_second_bot=1
+  fi
+  if [[ "$USE_DEFAULTS" -eq 0 ]]; then
+    if ! read_yesno "Run post-install credential wizard" "y"; then
+      non_interactive=1
+    fi
+  fi
+
+  print_summary "$mode" "$profile" "$install_dir" "$vault_path" "$repo_url" "$branch" "$with_tailscale" "$with_second_bot" "$non_interactive"
+
+  local args=(
+    "--mode" "$mode"
+    "--profile" "$profile"
+    "--vault-path" "$vault_path"
+    "--repo-url" "$repo_url"
+    "--branch" "$branch"
+  )
+
+  if [[ -n "$vnc_password" ]]; then
+    args+=("--vnc-password" "$vnc_password")
+  fi
+  if [[ "$with_tailscale" -eq 1 ]]; then
+    args+=("--with-tailscale")
+  fi
+  if [[ "$with_second_bot" -eq 1 ]]; then
+    args+=("--with-second-bot")
+  fi
+  if [[ "$non_interactive" -eq 1 ]]; then
+    args+=("--non-interactive")
+  fi
+
+  ensure_install_sh "$repo_url" "$branch"
+
+  log "delegating to install.sh"
+  printf 'HERMES_INSTALL_DIR=%q bash %q ' "$install_dir" "$INSTALL_SH" >&2
+  quote_cmd "${args[@]}" >&2
+
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    return 0
+  fi
+
+  HERMES_INSTALL_DIR="$install_dir" bash "$INSTALL_SH" "${args[@]}"
+}
+
+main "$@"

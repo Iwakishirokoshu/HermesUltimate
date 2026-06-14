@@ -1,0 +1,85 @@
+services:
+  9router:
+    image: decolua/9router:latest
+    container_name: hermes-9router
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:20128:20128"
+    environment:
+      DATA_DIR: /data
+      JWT_SECRET: ${NINEROUTER_JWT_SECRET:-}
+      INITIAL_PASSWORD: ${NINEROUTER_INITIAL_PASSWORD:-}
+      NINEROUTER_JWT_SECRET: ${NINEROUTER_JWT_SECRET:-}
+      NINEROUTER_INITIAL_PASSWORD: ${NINEROUTER_INITIAL_PASSWORD:-}
+      NINEROUTER_API_KEY: ${NINEROUTER_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    volumes:
+      - 9router_data:/data
+    networks:
+      - hermes-net
+
+  vault-api:
+    build:
+      context: ./vault_api
+    container_name: hermes-vault-api
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8090:8090"
+    environment:
+      HERMES_VAULT_PATH: /vault
+    volumes:
+      - ${HERMES_VAULT_PATH:-../HermesVault}:/vault:rw
+    networks:
+      - hermes-net
+
+  vnc-cloak:
+    profiles:
+      - legacy-cloak
+    build:
+      context: ./vnc-cloak
+    container_name: hermes-vnc-cloak
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5900:5900"
+      - "127.0.0.1:6080:6080"
+      - "127.0.0.1:9222:9222"
+    environment:
+      VNC_PASSWORD: ${VNC_PASSWORD:-}
+      CLOAK_PROFILE: ${CLOAK_PROFILE:-default}
+      CLOAK_DEBUG_PORT: ${CLOAK_DEBUG_PORT:-9223}
+      CLOAK_HEADLESS: ${CLOAK_HEADLESS:-false}
+      CLOAK_HUMANIZE: ${CLOAK_HUMANIZE:-true}
+      CLOAK_HUMAN_PRESET: ${CLOAK_HUMAN_PRESET:-}
+      CLOAK_GEOIP: ${CLOAK_GEOIP:-false}
+      CLOAK_STEALTH_ARGS: ${CLOAK_STEALTH_ARGS:-true}
+      CLOAK_VIEWPORT: ${CLOAK_VIEWPORT:-1920x1080}
+      CLOAK_SYNC_SCREEN_FINGERPRINT: ${CLOAK_SYNC_SCREEN_FINGERPRINT:-true}
+      CLOAK_SCREEN_WIDTH: ${CLOAK_SCREEN_WIDTH:-}
+      CLOAK_SCREEN_HEIGHT: ${CLOAK_SCREEN_HEIGHT:-}
+      CLOAK_FINGERPRINT_SEED: ${CLOAK_FINGERPRINT_SEED:-}
+      CLOAK_STORAGE_QUOTA: ${CLOAK_STORAGE_QUOTA:-}
+      CLOAK_FINGERPRINT_NOISE: ${CLOAK_FINGERPRINT_NOISE:-}
+      CLOAK_WEBRTC_IP: ${CLOAK_WEBRTC_IP:-}
+      CLOAK_PROXY: ${CLOAK_PROXY:-}
+      CLOAK_PROXY_SERVER: ${CLOAK_PROXY_SERVER:-}
+      CLOAK_PROXY_USERNAME: ${CLOAK_PROXY_USERNAME:-}
+      CLOAK_PROXY_PASSWORD: ${CLOAK_PROXY_PASSWORD:-}
+      CLOAK_PROXY_BYPASS: ${CLOAK_PROXY_BYPASS:-}
+      CLOAK_LOCALE: ${CLOAK_LOCALE:-}
+      CLOAK_TIMEZONE: ${CLOAK_TIMEZONE:-}
+      CLOAK_USER_AGENT: ${CLOAK_USER_AGENT:-}
+      CLOAK_COLOR_SCHEME: ${CLOAK_COLOR_SCHEME:-}
+      CLOAK_EXTENSION_PATHS: ${CLOAK_EXTENSION_PATHS:-}
+      CLOAK_EXTRA_ARGS: ${CLOAK_EXTRA_ARGS:-}
+      CLOAKBROWSER_BINARY_PATH: ${CLOAKBROWSER_BINARY_PATH:-}
+    volumes:
+      - ${HERMES_BROWSER_PROFILES:-~/.hermes/browser-profiles}:/profiles:rw
+    networks:
+      - hermes-net
+
+volumes:
+  9router_data:
+
+networks:
+  hermes-net:
+    driver: bridge
